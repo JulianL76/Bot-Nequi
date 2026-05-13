@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(.venv\\\\Scripts\\\\pip install google-genai)",
+      "PowerShell(.venv\\\\Scripts\\\\pip install pandas)",
+      "PowerShell(.venv\\\\Scripts\\\\pip install pillow python-dotenv python-telegram-bot)",
+      "Skill(claude-api)",
+      "Skill(claude-api:*)",
+      "PowerShell(.venv\\\\Scripts\\\\pip install anthropic)",
+      "PowerShell(.venv\\\\Scripts\\\\pip install groq)",
+      "PowerShell(.venv\\\\Scripts\\\\pip install openpyxl)",
+      "PowerShell(winget install --id Git.Git -e --source winget)",
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\); cd \"c:\\\\Users\\\\usuario\\\\OneDrive\\\\Escritorio\\\\Bot-Nequi-master\"; git --version)",
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\); cd \"c:\\\\Users\\\\usuario\\\\OneDrive\\\\Escritorio\\\\Bot-Nequi-master\"; git init; git add bot.py .env; git status)",
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\); cd \"c:\\\\Users\\\\usuario\\\\OneDrive\\\\Escritorio\\\\Bot-Nequi-master\"; git add bot.py requirements.txt README.md .gitignore listas_nequi.json; git -c user.email=\"julilamus76@gmail.com\" -c user.name=\"julilamus76\" commit -m \"Migrar a Groq, corregir exportacion Excel hora colombiana\")",
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\); cd \"c:\\\\Users\\\\usuario\\\\OneDrive\\\\Escritorio\\\\Bot-Nequi-master\"; git remote -v)",
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\); cd \"c:\\\\Users\\\\usuario\\\\OneDrive\\\\Escritorio\\\\Bot-Nequi-master\"; git remote add origin https://github.com/JulianL76/Bot-Nequi.git; git push -u origin master)"
+    ]
+  }
+}

@@ -1,20 +1,13 @@
 import os
 import re
 import logging
+import easyocr
 import json
+import torch
 import csv
+import cv2
+import numpy as np
 import html
-import asyncio
-import time
-<<<<<<< HEAD
-import base64
-from groq import Groq
-import pandas as pd
-=======
-from google import genai
-import pandas as pd
-from PIL import Image
->>>>>>> origin/master
 from datetime import datetime
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
@@ -29,213 +22,70 @@ from telegram.ext import (
 
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-<<<<<<< HEAD
-GROQ_KEY = os.getenv("GROQ_API_KEY")
-=======
-GEMINI_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_KEY_BACKUP = os.getenv("GEMINI_API_KEY_BACKUP")
->>>>>>> origin/master
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-<<<<<<< HEAD
-GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+use_gpu = torch.cuda.is_available()
+print(f"🚀 {'GPU Detectada' if use_gpu else 'CPU Usada'}")
+reader = easyocr.Reader(['es'], gpu=use_gpu)
 
-if GROQ_KEY:
-    groq_client = Groq(api_key=GROQ_KEY)
-else:
-    logger.error("❌ No se encontró GROQ_API_KEY en el archivo .env")
-    groq_client = None
-=======
-GEMINI_MODEL = "gemini-2.0-flash-lite"
-_usando_backup = False
-_last_gemini_call = 0.0
-GEMINI_MIN_INTERVAL = 4.5  # máx ~13 req/min, por debajo del límite de 15
-
-def configurar_gemini(api_key):
-    return genai.Client(api_key=api_key, http_options={"timeout": 60, "retryOptions": {"attempts": 1}})
-
-if GEMINI_KEY:
-    gemini = configurar_gemini(GEMINI_KEY)
-else:
-    logger.error("❌ No se encontró GEMINI_API_KEY en el archivo .env")
-    gemini = None
-
-def switch_a_backup():
-    global gemini, _usando_backup
-    if GEMINI_KEY_BACKUP and not _usando_backup:
-        gemini = configurar_gemini(GEMINI_KEY_BACKUP)
-        _usando_backup = True
-        logger.warning("Cuota principal agotada — cambiando a API key de backup")
-        return True
-    return False
->>>>>>> origin/master
-
-# Configuración de carpetas y archivos
+# Configuración de carpetas
 DATA_FILE = "listas_nequi.json"
 LOG_DIR = "logs_comprobantes"
-DEBUG_FILE = "debug_log.json"
-QUOTA_FILE = "quota_tracker.json"
 PAGE_SIZE = 5
-DAILY_LIMIT = 1500
-QUOTA_WARN = 1200  # avisar al llegar al 80%
 
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
 
 # ---------------------------------------------------------------------------
-# Cuota diaria Gemini
-# ---------------------------------------------------------------------------
-
-def load_quota() -> int:
-    today = datetime.now().strftime("%Y-%m-%d")
-    try:
-        if os.path.exists(QUOTA_FILE) and os.path.getsize(QUOTA_FILE) > 0:
-            with open(QUOTA_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if data.get("date") == today:
-                return data.get("count", 0)
-    except Exception:
-        pass
-    return 0
-
-def increment_quota() -> int:
-    today = datetime.now().strftime("%Y-%m-%d")
-    count = load_quota() + 1
-    with open(QUOTA_FILE, "w", encoding="utf-8") as f:
-        json.dump({"date": today, "count": count}, f)
-    return count
-
-# ---------------------------------------------------------------------------
 # Persistencia
 # ---------------------------------------------------------------------------
-
-def log_debug_info(user_id, response_data, image_name):
-    try:
-        if os.path.exists(DEBUG_FILE) and os.path.getsize(DEBUG_FILE) > 0:
-            with open(DEBUG_FILE, "r", encoding="utf-8") as f:
-                logs = json.load(f)
-        else:
-            logs = []
-    except (json.JSONDecodeError, FileNotFoundError):
-        logs = []
-        
-    logs.append({
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "user_id": str(user_id),
-        "image": image_name,
-        "response": response_data
-    })
-    
-    with open(DEBUG_FILE, "w", encoding="utf-8") as f:
-        json.dump(logs, f, indent=4, ensure_ascii=False)
 
 def save_data(data):
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
 def load_data():
-    if os.path.exists(DATA_FILE) and os.path.getsize(DATA_FILE) > 0:
+    if os.path.exists(DATA_FILE):
         try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except json.JSONDecodeError:
+        except:
             return {}
     return {}
 
 # ---------------------------------------------------------------------------
-# Procesamiento con Gemini
+# OCR e imagen
 # ---------------------------------------------------------------------------
 
-async def analizar_comprobante(path):
-<<<<<<< HEAD
-    prompt = """Analiza esta imagen de un comprobante de Nequi y extrae los datos para un sistema contable.
-Responde ÚNICAMENTE con un objeto JSON con esta estructura exacta:
-{
-  "de": "Nombre de la persona o entidad que envía (o 'Corresponsal')",
-  "valor": "$0.000 (con símbolo y puntos)",
-  "fecha": "DD de Mes de AAAA",
-  "hora": "HH:MM am/pm",
-  "ref": "Número de referencia o movimiento"
-}
-Si no encuentras un dato, usa "No encontrada". No añadas texto extra, solo el JSON."""
-    try:
-        with open(path, "rb") as f:
-            image_data = base64.b64encode(f.read()).decode("utf-8")
+def preprocesar_imagen(path):
+    """Preprocesamiento optimizado para capturas de Nequi desde el mismo celular."""
+    img = cv2.imread(path)
+    if img is None:
+        return path
 
-        response = await asyncio.to_thread(
-            groq_client.chat.completions.create,
-            model=GROQ_MODEL,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}},
-                    {"type": "text", "text": prompt}
-                ]
-            }],
-            max_tokens=512,
-            temperature=0
-        )
+    # Upscale 2x — mayor resolución = OCR más preciso en texto pequeño de móvil
+    img = cv2.resize(img, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
 
-        text = response.choices[0].message.content.strip()
-        clean_json = text.replace('```json', '').replace('```', '').strip()
-        return json.loads(clean_json)
-    except Exception as e:
-        logger.error(f"Error en Groq: {e}")
-=======
-    global _last_gemini_call
-    prompt = """
-    Analiza esta imagen de un comprobante de Nequi y extrae los datos para un sistema contable.
-    Responde ÚNICAMENTE con un objeto JSON con esta estructura exacta:
-    {
-      "de": "Nombre de la persona o entidad que envía (o 'Corresponsal')",
-      "valor": "$0.000 (con símbolo y puntos)",
-      "fecha": "DD de Mes de AAAA",
-      "hora": "HH:MM am/pm",
-      "ref": "Número de referencia o movimiento"
-    }
-    Si no encuentras un dato, usa "No encontrada". No añadas texto extra, solo el JSON.
-    """
-    try:
-        # Respetar límite de 15 req/min
-        espera = GEMINI_MIN_INTERVAL - (time.monotonic() - _last_gemini_call)
-        if espera > 0:
-            await asyncio.sleep(espera)
-        _last_gemini_call = time.monotonic()
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-        with Image.open(path) as img:
-            img.load()
-            pil_img = img.copy()
+    # Filtro bilateral: elimina ruido JPEG preservando bordes del texto
+    denoised = cv2.bilateralFilter(gray, 9, 75, 75)
 
-        try:
-            response = gemini.models.generate_content(model=GEMINI_MODEL, contents=[prompt, pil_img])
-        except Exception as e:
-            err = str(e)
-            if "429" in err or "RESOURCE_EXHAUSTED" in err:
-                delay_match = re.search(r'"seconds":\s*"?(\d+)"?', err) or re.search(r'retry in (\d+)', err)
-                retry_after = int(delay_match.group(1)) if delay_match else 20
-                if "PerDay" in err or "PerModelPerDay" in err:
-                    if switch_a_backup():
-                        response = gemini.models.generate_content(model=GEMINI_MODEL, contents=[prompt, pil_img])
-                    else:
-                        raise
-                else:
-                    logger.warning(f"Límite por minuto — esperando {retry_after}s")
-                    await asyncio.sleep(retry_after)
-                    _last_gemini_call = time.monotonic()
-                    response = gemini.models.generate_content(model=GEMINI_MODEL, contents=[prompt, pil_img])
-            else:
-                raise
+    # CLAHE con clipLimit mayor para capturas de pantalla móvil
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    contrast = clahe.apply(denoised)
 
-        clean_json = response.text.strip().replace('```json', '').replace('```', '').strip()
-        return json.loads(clean_json)
-    except Exception as e:
-        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-            raise
-        logger.error(f"Error en Gemini: {e}")
->>>>>>> origin/master
-        return None
+    # Kernel de nitidez para texto
+    kernel = np.array([[0, -1, 0],
+                       [-1,  5, -1],
+                       [0, -1, 0]])
+    sharpened = cv2.filter2D(contrast, -1, kernel)
+
+    proc_path = "proc_" + os.path.basename(path)
+    cv2.imwrite(proc_path, sharpened)
+    return proc_path
 
 # ---------------------------------------------------------------------------
 # Utilidades
@@ -297,7 +147,7 @@ def construir_pagina_lista(user_list, page):
         botones.append(nav)
     botones.append([
         InlineKeyboardButton("📥 TXT", callback_data="download_txt"),
-        InlineKeyboardButton("📊 EXCEL", callback_data="download_xlsx"),
+        InlineKeyboardButton("📊 CSV", callback_data="download_csv"),
         InlineKeyboardButton("🗑️ Eliminar", callback_data=f"del_menu_{page}"),
     ])
 
@@ -356,111 +206,118 @@ async def ver_lista(update: Update, context: ContextTypes.DEFAULT_TYPE, page: in
     await update.message.reply_text(texto, parse_mode='HTML', reply_markup=markup)
 
 async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    status_msg = await update.message.reply_text("🔍 Analizando con IA...")
+    status_msg = await update.message.reply_text("🔍 Analizando datos...")
     file_path = f"temp_{update.message.message_id}.jpg"
-
+    proc_path = None
     try:
-<<<<<<< HEAD
-=======
-        quota_actual = load_quota()
-        if quota_actual >= DAILY_LIMIT:
-            await status_msg.delete()
-            await update.message.reply_text(
-                f"🚫 <b>Límite diario alcanzado</b>\n\n"
-                f"Se usaron las {DAILY_LIMIT} consultas de hoy a Gemini AI.\n"
-                f"El límite se resetea a las <b>7pm hora Colombia</b>.\n\n"
-                f"Intenta de nuevo más tarde.",
-                parse_mode='HTML',
-                reply_markup=MAIN_KEYBOARD
-            )
-            return
-
->>>>>>> origin/master
         photo_file = await update.message.photo[-1].get_file()
         await photo_file.download_to_drive(file_path)
 
-        try:
-            datos = await analizar_comprobante(file_path)
-<<<<<<< HEAD
-        except Exception as e:
-            await status_msg.delete()
-            await update.message.reply_text(
-                "❌ Error al analizar la imagen. Intenta de nuevo.",
-=======
-        except Exception as quota_err:
-            await status_msg.delete()
-            await update.message.reply_text(
-                "🚫 <b>Cuota de Gemini agotada.</b>\n\nIntenta de nuevo a las 7pm hora Colombia.",
-                parse_mode='HTML',
->>>>>>> origin/master
-                reply_markup=MAIN_KEYBOARD
-            )
-            return
+        proc_path = preprocesar_imagen(file_path)
 
-        if not datos:
-            await status_msg.delete()
-            await update.message.reply_text(
-<<<<<<< HEAD
-                "❌ No pude entender la imagen. Revisa los logs del bot para ver el error.",
-=======
-                "❌ No pude entender la imagen. Intenta con otra.",
->>>>>>> origin/master
-                reply_markup=MAIN_KEYBOARD
-            )
-            return
+        raw_results = reader.readtext(
+            proc_path,
+            detail=1,
+            paragraph=False,
+            contrast_ths=0.1,
+            adjust_contrast=0.5,
+            text_threshold=0.7,
+            low_text=0.4,
+        )
 
-<<<<<<< HEAD
-        aviso_cuota = ""
-=======
-        quota_actual = increment_quota()
-        aviso_cuota = ""
-        if quota_actual >= QUOTA_WARN:
-            restantes = DAILY_LIMIT - quota_actual
-            aviso_cuota = f"\n\n⚠️ <i>Cuota: {quota_actual}/{DAILY_LIMIT} — quedan {restantes} consultas hoy</i>"
->>>>>>> origin/master
+        MIN_CONF = 0.3
+        results = [(bbox, text.strip(), conf) for bbox, text, conf in raw_results if conf >= MIN_CONF and text.strip()]
+        results.sort(key=lambda r: r[0][0][1])  # top-left y
 
-        res_de = datos.get("de", "No encontrada")
-        res_valor = datos.get("valor", "$0")
-        res_fecha = datos.get("fecha", "No encontrada")
-        res_hora = datos.get("hora", "No encontrada")
-        res_ref = datos.get("ref", "No encontrada")
+        blocks = [text for _, text, _ in results]
+        full_txt = " ".join(blocks)
+        logger.info(f"Bloques OCR ({len(blocks)}): {blocks}")
 
-        # --- REGLA DE NEGOCIO: Corresponsal basado en Referencia ---
-        if res_ref == "No encontrada" or res_ref.strip().upper().startswith('S'):
-            res_de = "Corresponsal"
+        res_de = "Corresponsal"
+        res_valor = "$0"
+        res_fecha = "No encontrada"
+        res_hora = "No encontrada"
+        res_ref = "No encontrada"
+
+        for i, (bbox, text, conf) in enumerate(results):
+            t_clean = text.lower()
+
+            if t_clean in ["de", "para"] and i + 1 < len(results):
+                posible = results[i + 1][1]
+                if "¿cu" not in posible.lower() and "$" not in posible and len(posible) > 2:
+                    res_de = posible
+
+            if "$" in text:
+                val_match = re.search(r'\$\s*[\d\.]+', text)
+                if val_match:
+                    res_valor = val_match.group(0).replace(" ", "")
+
+            if re.search(r'\d{1,2}\s+de\s+\w+\s+de\s+20\d{2}', text, re.IGNORECASE):
+                h_match = re.search(r'\d{1,2}[:.]\d{2}\s*[aApP]\.?\s*[mM]\.?', text)
+                if h_match:
+                    res_hora = h_match.group(0).strip()
+                    res_fecha = re.sub(r'\d{1,2}[:.]\d{2}\s*[aApP]\.?\s*[mM]\.?', '', text)
+                    res_fecha = res_fecha.replace("a las", "").strip(" ,-")
+                else:
+                    res_fecha = text
+
+            if re.search(r'^(referencia|ref\.?)$', t_clean):
+                if i + 1 < len(results):
+                    res_ref = results[i + 1][1]
+
+        if res_valor == "$0":
+            val_fall = re.search(r'\$\s*[\d\.]{3,}', full_txt)
+            if val_fall:
+                res_valor = val_fall.group(0).replace(" ", "")
+
+        if res_fecha == "No encontrada":
+            fecha_fall = re.search(r'\d{1,2}\s+de\s+\w+\s+de\s+20\d{2}', full_txt, re.IGNORECASE)
+            if fecha_fall:
+                res_fecha = fecha_fall.group(0)
+
+        if res_hora == "No encontrada":
+            hora_fall = re.search(r'\d{1,2}[:.]\d{2}\s*[aApP]\.?\s*[mM]\.?', full_txt, re.IGNORECASE)
+            if hora_fall:
+                res_hora = hora_fall.group(0).strip()
+
+        if res_ref == "No encontrada":
+            ref_fall = re.search(r'\bM[O0-9]{9,}\b|\b\d{10,}\b', full_txt, re.IGNORECASE)
+            if ref_fall:
+                res_ref = ref_fall.group(0)
+
+        if res_ref != "No encontrada":
+            if res_ref.upper().startswith('M'):
+                res_ref = 'M' + res_ref[1:].upper().replace('O', '0')
+            else:
+                res_ref = res_ref.replace('O', '0').replace('o', '0')
 
         # --- DETECCIÓN DE DUPLICADO ---
         user_id = str(update.effective_user.id)
         user_list = load_data().get(user_id, [])
         dup = buscar_duplicado(user_list, res_ref)
 
-        # --- PERSISTENCIA DE IMAGEN Y LOG ---
+        # --- PERSISTENCIA DE IMAGEN ---
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        ref_clean = res_ref.replace(" ", "_")
-        final_image_name = f"{timestamp}_{user_id}_{ref_clean}.jpg"
+        ref_clean = res_ref.replace(" ", "_").replace("/", "-")
+        final_image_name = f"ocr_{timestamp}_{user_id}_{ref_clean}.jpg"
         final_path = os.path.join(LOG_DIR, final_image_name)
         
-        # Copiar imagen temporal a carpeta de logs en lugar de borrarla
         os.rename(file_path, final_path)
-        file_path = None # Evitar que el finally intente borrarla
-
-        # Guardar log técnico
-        log_debug_info(user_id, datos, final_image_name)
+        file_path = None # Evitar borrado en finally
 
         p_id = str(update.message.message_id)
         context.user_data[p_id] = {
             "de": res_de, "valor": res_valor,
             "fecha": res_fecha, "hora": res_hora, "ref": res_ref,
-            "img_log": final_image_name # Guardamos referencia a la imagen
+            "img_log": final_image_name
         }
 
-        response = (f"✨ <b>Datos Detectados por IA:</b>\n\n"
+        response = (f"✅ <b>Datos Detectados:</b>\n\n"
                     f"👤 <b>Contacto:</b> <code>{html.escape(res_de)}</code>\n"
                     f"💰 <b>Valor:</b> <code>{html.escape(res_valor)}</code>\n"
                     f"📅 <b>Fecha:</b> <code>{html.escape(res_fecha)}</code>\n"
                     f"🕒 <b>Hora:</b> <code>{html.escape(res_hora)}</code>\n"
-                    f"🔢 <b>Ref:</b> <code>{html.escape(res_ref)}</code>"
-                    f"{aviso_cuota}")
+                    f"🔢 <b>Ref:</b> <code>{html.escape(res_ref)}</code>")
 
         if dup:
             dup_idx, dup_item = dup
@@ -484,11 +341,12 @@ async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.error(f"Error: {e}")
-        await update.message.reply_text("❌ Error al procesar la imagen.", reply_markup=MAIN_KEYBOARD)
+        await update.message.reply_text("❌ Error al procesar.")
     finally:
-        # Verificamos que file_path no sea None antes de intentar borrar
-        if file_path and os.path.exists(file_path):
+        if os.path.exists(file_path):
             os.remove(file_path)
+        if proc_path and os.path.exists(proc_path):
+            os.remove(proc_path)
 
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -516,49 +374,16 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.remove(file_name)
         return
 
-    if raw == "download_xlsx":
+    if raw == "download_csv":
         if not user_list:
             return
-        file_name = f"lista_{user_id}.xlsx"
-        
-        # Crear DataFrame
-        df = pd.DataFrame(user_list)
-        
-<<<<<<< HEAD
-        # Convertir horas en formato colombiano "HH:MM p. m." / "HH:MM p.m." a tiempo
-        import re as _re
-        def _parse_hora(h):
-            if not isinstance(h, str):
-                return None
-            # Normaliza "p. m." / "a. m." (con/sin espacios) a "PM"/"AM"
-            clean = _re.sub(r'p\.?\s*m\.?', 'PM', h, flags=_re.IGNORECASE)
-            clean = _re.sub(r'a\.?\s*m\.?', 'AM', clean, flags=_re.IGNORECASE).strip()
-            for fmt in ('%I:%M %p', '%H:%M'):
-                try:
-                    return datetime.strptime(clean, fmt).time()
-                except ValueError:
-                    continue
-            return None
-        df['Hora'] = df['hora'].apply(_parse_hora)
-=======
-        # Intentar convertir horas a formato tiempo de Excel
-        # Quitamos puntos extras (como a. m.) para que pandas lo entienda mejor
-        df['hora_clean'] = df['hora'].str.replace('.', '', regex=False).str.upper()
-        df['Hora'] = pd.to_datetime(df['hora_clean'], errors='coerce').dt.time
->>>>>>> origin/master
-        
-        # Reordenar y renombrar columnas
-        df_export = df[['de', 'valor', 'fecha', 'Hora', 'ref']].rename(columns={
-            'de': 'Contacto',
-            'valor': 'Monto',
-            'fecha': 'Fecha',
-            'ref': 'Referencia'
-        })
-
-        # Guardar a Excel
-        df_export.to_excel(file_name, index=False, engine='openpyxl')
-        
-        await context.bot.send_document(chat_id=user_id, document=open(file_name, 'rb'), filename="Lista_Nequi.xlsx")
+        file_name = f"lista_{user_id}.csv"
+        with open(file_name, "w", newline='', encoding="utf-8") as f:
+            writer = csv.writer(f, delimiter=';')
+            writer.writerow(['#', 'Contacto', 'Valor', 'Fecha', 'Hora', 'Referencia'])
+            for idx, item in enumerate(user_list, 1):
+                writer.writerow([idx, item['de'], item['valor'], item['fecha'], item.get('hora', ''), item['ref']])
+        await context.bot.send_document(chat_id=user_id, document=open(file_name, 'rb'), filename="Lista_Nequi.csv")
         os.remove(file_name)
         return
 
@@ -780,8 +605,7 @@ if __name__ == '__main__':
     if not TOKEN:
         print("❌ Token no configurado")
     else:
-        # Construir la aplicación con tiempos de espera extendidos (30s) para evitar 'Timed out'
-        app = ApplicationBuilder().token(TOKEN).connect_timeout(30).read_timeout(30).write_timeout(30).pool_timeout(30).build()
+        app = ApplicationBuilder().token(TOKEN).build()
         app.add_handler(CommandHandler("start", start))
         app.add_handler(MessageHandler(filters.PHOTO, process_photo))
         app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), text_handler))

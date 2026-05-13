@@ -6,15 +6,9 @@ import csv
 import html
 import asyncio
 import time
-<<<<<<< HEAD
-import base64
-from groq import Groq
-import pandas as pd
-=======
 from google import genai
 import pandas as pd
 from PIL import Image
->>>>>>> origin/master
 from datetime import datetime
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
@@ -29,25 +23,12 @@ from telegram.ext import (
 
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-<<<<<<< HEAD
-GROQ_KEY = os.getenv("GROQ_API_KEY")
-=======
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_KEY_BACKUP = os.getenv("GEMINI_API_KEY_BACKUP")
->>>>>>> origin/master
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-<<<<<<< HEAD
-GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
-
-if GROQ_KEY:
-    groq_client = Groq(api_key=GROQ_KEY)
-else:
-    logger.error("❌ No se encontró GROQ_API_KEY en el archivo .env")
-    groq_client = None
-=======
 GEMINI_MODEL = "gemini-2.0-flash-lite"
 _usando_backup = False
 _last_gemini_call = 0.0
@@ -70,7 +51,6 @@ def switch_a_backup():
         logger.warning("Cuota principal agotada — cambiando a API key de backup")
         return True
     return False
->>>>>>> origin/master
 
 # Configuración de carpetas y archivos
 DATA_FILE = "listas_nequi.json"
@@ -149,41 +129,6 @@ def load_data():
 # ---------------------------------------------------------------------------
 
 async def analizar_comprobante(path):
-<<<<<<< HEAD
-    prompt = """Analiza esta imagen de un comprobante de Nequi y extrae los datos para un sistema contable.
-Responde ÚNICAMENTE con un objeto JSON con esta estructura exacta:
-{
-  "de": "Nombre de la persona o entidad que envía (o 'Corresponsal')",
-  "valor": "$0.000 (con símbolo y puntos)",
-  "fecha": "DD de Mes de AAAA",
-  "hora": "HH:MM am/pm",
-  "ref": "Número de referencia o movimiento"
-}
-Si no encuentras un dato, usa "No encontrada". No añadas texto extra, solo el JSON."""
-    try:
-        with open(path, "rb") as f:
-            image_data = base64.b64encode(f.read()).decode("utf-8")
-
-        response = await asyncio.to_thread(
-            groq_client.chat.completions.create,
-            model=GROQ_MODEL,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}},
-                    {"type": "text", "text": prompt}
-                ]
-            }],
-            max_tokens=512,
-            temperature=0
-        )
-
-        text = response.choices[0].message.content.strip()
-        clean_json = text.replace('```json', '').replace('```', '').strip()
-        return json.loads(clean_json)
-    except Exception as e:
-        logger.error(f"Error en Groq: {e}")
-=======
     global _last_gemini_call
     prompt = """
     Analiza esta imagen de un comprobante de Nequi y extrae los datos para un sistema contable.
@@ -234,7 +179,6 @@ Si no encuentras un dato, usa "No encontrada". No añadas texto extra, solo el J
         if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
             raise
         logger.error(f"Error en Gemini: {e}")
->>>>>>> origin/master
         return None
 
 # ---------------------------------------------------------------------------
@@ -360,8 +304,6 @@ async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_path = f"temp_{update.message.message_id}.jpg"
 
     try:
-<<<<<<< HEAD
-=======
         quota_actual = load_quota()
         if quota_actual >= DAILY_LIMIT:
             await status_msg.delete()
@@ -375,24 +317,16 @@ async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
->>>>>>> origin/master
         photo_file = await update.message.photo[-1].get_file()
         await photo_file.download_to_drive(file_path)
 
         try:
             datos = await analizar_comprobante(file_path)
-<<<<<<< HEAD
-        except Exception as e:
-            await status_msg.delete()
-            await update.message.reply_text(
-                "❌ Error al analizar la imagen. Intenta de nuevo.",
-=======
         except Exception as quota_err:
             await status_msg.delete()
             await update.message.reply_text(
                 "🚫 <b>Cuota de Gemini agotada.</b>\n\nIntenta de nuevo a las 7pm hora Colombia.",
                 parse_mode='HTML',
->>>>>>> origin/master
                 reply_markup=MAIN_KEYBOARD
             )
             return
@@ -400,24 +334,16 @@ async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not datos:
             await status_msg.delete()
             await update.message.reply_text(
-<<<<<<< HEAD
-                "❌ No pude entender la imagen. Revisa los logs del bot para ver el error.",
-=======
                 "❌ No pude entender la imagen. Intenta con otra.",
->>>>>>> origin/master
                 reply_markup=MAIN_KEYBOARD
             )
             return
 
-<<<<<<< HEAD
-        aviso_cuota = ""
-=======
         quota_actual = increment_quota()
         aviso_cuota = ""
         if quota_actual >= QUOTA_WARN:
             restantes = DAILY_LIMIT - quota_actual
             aviso_cuota = f"\n\n⚠️ <i>Cuota: {quota_actual}/{DAILY_LIMIT} — quedan {restantes} consultas hoy</i>"
->>>>>>> origin/master
 
         res_de = datos.get("de", "No encontrada")
         res_valor = datos.get("valor", "$0")
@@ -524,28 +450,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Crear DataFrame
         df = pd.DataFrame(user_list)
         
-<<<<<<< HEAD
-        # Convertir horas en formato colombiano "HH:MM p. m." / "HH:MM p.m." a tiempo
-        import re as _re
-        def _parse_hora(h):
-            if not isinstance(h, str):
-                return None
-            # Normaliza "p. m." / "a. m." (con/sin espacios) a "PM"/"AM"
-            clean = _re.sub(r'p\.?\s*m\.?', 'PM', h, flags=_re.IGNORECASE)
-            clean = _re.sub(r'a\.?\s*m\.?', 'AM', clean, flags=_re.IGNORECASE).strip()
-            for fmt in ('%I:%M %p', '%H:%M'):
-                try:
-                    return datetime.strptime(clean, fmt).time()
-                except ValueError:
-                    continue
-            return None
-        df['Hora'] = df['hora'].apply(_parse_hora)
-=======
         # Intentar convertir horas a formato tiempo de Excel
         # Quitamos puntos extras (como a. m.) para que pandas lo entienda mejor
         df['hora_clean'] = df['hora'].str.replace('.', '', regex=False).str.upper()
         df['Hora'] = pd.to_datetime(df['hora_clean'], errors='coerce').dt.time
->>>>>>> origin/master
         
         # Reordenar y renombrar columnas
         df_export = df[['de', 'valor', 'fecha', 'Hora', 'ref']].rename(columns={
