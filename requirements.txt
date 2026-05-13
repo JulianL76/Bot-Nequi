@@ -1,0 +1,15 @@
+# Comunes
+python-telegram-bot
+python-dotenv
+Pillow
+pandas
+openpyxl
+
+# Para versión Gemini (Recomendada)
+google-genai
+
+# Para versión OCR (Original)
+easyocr
+opencv-python
+numpy
+torch
