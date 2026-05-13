@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+quota_tracker.json
+debug_log.json
+listas_nequi.json
+logs_comprobantes/
+temp_*.jpg
+*.xlsx
