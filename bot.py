@@ -54,7 +54,7 @@ if not os.path.exists(LOG_DIR):
 # ---------------------------------------------------------------------------
 
 def load_quota() -> dict:
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.utcnow().strftime("%Y-%m-%d")  # UTC igual que Groq
     try:
         if os.path.exists(QUOTA_FILE) and os.path.getsize(QUOTA_FILE) > 0:
             with open(QUOTA_FILE, "r", encoding="utf-8") as f:
@@ -66,7 +66,7 @@ def load_quota() -> dict:
     return {"count": 0, "tokens": 0}
 
 def increment_quota(tokens: int = 0) -> dict:
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.utcnow().strftime("%Y-%m-%d")  # UTC igual que Groq
     q = load_quota()
     q["count"] += 1
     q["tokens"] += tokens
@@ -289,7 +289,7 @@ async def ver_api_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<b>Tokens hoy</b>\n"
         f"{barra(pct_tok)} <code>{tokens:,}/{GROQ_TPD:,}</code> ({pct_tok:.1f}%)\n\n"
         f"<b>Límite por minuto:</b> {GROQ_RPM} req/min\n"
-        f"<i>La cuota se resetea cada día a medianoche UTC.</i>"
+        f"<i>La cuota se resetea a las 7pm hora Colombia (medianoche UTC).</i>"
     )
     await update.message.reply_text(texto, parse_mode='HTML', reply_markup=MAIN_KEYBOARD)
 
