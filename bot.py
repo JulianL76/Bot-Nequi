@@ -6,6 +6,8 @@ import csv
 import html
 import asyncio
 import base64
+import io
+from PIL import Image
 from groq import Groq
 import pandas as pd
 from datetime import datetime
@@ -115,21 +117,24 @@ def load_data():
 # Procesamiento con Gemini
 # ---------------------------------------------------------------------------
 
-async def analizar_comprobante(path):
-    prompt = """Analiza esta imagen de un comprobante de Nequi y extrae los datos para un sistema contable.
-Responde ÚNICAMENTE con un objeto JSON con esta estructura exacta:
-{
-  "de": "Nombre de la persona o entidad que envía (o 'Corresponsal')",
-  "valor": "$0.000 (con símbolo y puntos)",
-  "fecha": "DD de Mes de AAAA",
-  "hora": "HH:MM am/pm",
-  "ref": "Número de referencia o movimiento"
-}
-Si no encuentras un dato, usa "No encontrada". No añadas texto extra, solo el JSON."""
-    try:
-        with open(path, "rb") as f:
-            image_data = base64.b64encode(f.read()).decode("utf-8")
+def _resize_image(path: str, max_px: int = 768) -> str:
+    with Image.open(path) as img:
+        img = img.convert("RGB")
+        w, h = img.size
+        if max(w, h) > max_px:
+            ratio = max_px / max(w, h)
+            img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=85, optimize=True)
+        return base64.b64encode(buf.getvalue()).decode("utf-8")
 
+async def analizar_comprobante(path):
+    prompt = ('JSON solo, sin texto extra:\n'
+              '{"de":"remitente o Corresponsal","valor":"$X.XXX","fecha":"DD de Mes AAAA",'
+              '"hora":"H:MM am/pm","ref":"numero"}\n'
+              'Dato ausente: "No encontrada".')
+    try:
+        image_data = await asyncio.to_thread(_resize_image, path)
         response = await asyncio.to_thread(
             groq_client.chat.completions.create,
             model=GROQ_MODEL,
@@ -140,7 +145,7 @@ Si no encuentras un dato, usa "No encontrada". No añadas texto extra, solo el J
                     {"type": "text", "text": prompt}
                 ]
             }],
-            max_tokens=512,
+            max_tokens=200,
             temperature=0
         )
 
