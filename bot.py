@@ -10,7 +10,7 @@ import io
 from PIL import Image
 from groq import Groq
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -58,7 +58,7 @@ if not os.path.exists(LOG_DIR):
 _KEY_TAG = (GROQ_KEY or "")[-6:]  # últimos 6 chars de la key como huella
 
 def load_quota() -> dict:
-    today = datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     try:
         if os.path.exists(QUOTA_FILE) and os.path.getsize(QUOTA_FILE) > 0:
             with open(QUOTA_FILE, "r", encoding="utf-8") as f:
@@ -70,7 +70,7 @@ def load_quota() -> dict:
     return {"count": 0, "tokens": 0}
 
 def increment_quota(tokens: int = 0) -> dict:
-    today = datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     q = load_quota()
     q["count"] += 1
     q["tokens"] += tokens
