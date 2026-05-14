@@ -41,34 +41,38 @@ LOG_DIR = "logs_comprobantes"
 DEBUG_FILE = "debug_log.json"
 QUOTA_FILE = "quota_tracker.json"
 PAGE_SIZE = 5
-DAILY_LIMIT = 1500
-QUOTA_WARN = 1200  # avisar al llegar al 80%
+# Límites oficiales Groq free tier para llama-4-scout-17b-16e-instruct
+GROQ_RPD = 1000   # requests per day
+GROQ_RPM = 30     # requests per minute
+GROQ_TPD = 500000 # tokens per day
 
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
 
 # ---------------------------------------------------------------------------
-# Cuota diaria Gemini
+# Cuota diaria Groq
 # ---------------------------------------------------------------------------
 
-def load_quota() -> int:
+def load_quota() -> dict:
     today = datetime.now().strftime("%Y-%m-%d")
     try:
         if os.path.exists(QUOTA_FILE) and os.path.getsize(QUOTA_FILE) > 0:
             with open(QUOTA_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if data.get("date") == today:
-                return data.get("count", 0)
+                return {"count": data.get("count", 0), "tokens": data.get("tokens", 0)}
     except Exception:
         pass
-    return 0
+    return {"count": 0, "tokens": 0}
 
-def increment_quota() -> int:
+def increment_quota(tokens: int = 0) -> dict:
     today = datetime.now().strftime("%Y-%m-%d")
-    count = load_quota() + 1
+    q = load_quota()
+    q["count"] += 1
+    q["tokens"] += tokens
     with open(QUOTA_FILE, "w", encoding="utf-8") as f:
-        json.dump({"date": today, "count": count}, f)
-    return count
+        json.dump({"date": today, "count": q["count"], "tokens": q["tokens"]}, f)
+    return q
 
 # ---------------------------------------------------------------------------
 # Persistencia
@@ -140,6 +144,8 @@ Si no encuentras un dato, usa "No encontrada". No añadas texto extra, solo el J
             temperature=0
         )
 
+        tokens_usados = getattr(response.usage, "total_tokens", 0) or 0
+        increment_quota(tokens_usados)
         text = response.choices[0].message.content.strip()
         clean_json = text.replace('```json', '').replace('```', '').strip()
         return json.loads(clean_json)
@@ -240,7 +246,7 @@ def construir_resumen_guardado(lista, num):
 # ---------------------------------------------------------------------------
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
-    [['📜 Ver Lista', '🆕 Nueva Lista'], ['❓ Ayuda']],
+    [['📜 Ver Lista', '🆕 Nueva Lista'], ['📊 API Status', '❓ Ayuda']],
     resize_keyboard=True
 )
 
@@ -253,6 +259,33 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 ¡Hola! Soy tu gestor Nequi.\nEnvíame capturas y gestionaré tus cobros.",
         reply_markup=MAIN_KEYBOARD
     )
+
+async def ver_api_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = load_quota()
+    count = q["count"]
+    tokens = q["tokens"]
+
+    pct_req = count / GROQ_RPD * 100
+    pct_tok = tokens / GROQ_TPD * 100
+
+    def barra(pct):
+        filled = int(pct / 10)
+        return "█" * filled + "░" * (10 - filled)
+
+    estado_key = "🟢 Configurada" if groq_client else "🔴 No configurada"
+
+    texto = (
+        f"🤖 <b>Estado API Groq</b>\n\n"
+        f"<b>Modelo:</b> <code>{GROQ_MODEL}</code>\n"
+        f"<b>API Key:</b> {estado_key}\n\n"
+        f"<b>Solicitudes hoy</b>\n"
+        f"{barra(pct_req)} <code>{count}/{GROQ_RPD}</code> ({pct_req:.1f}%)\n\n"
+        f"<b>Tokens hoy</b>\n"
+        f"{barra(pct_tok)} <code>{tokens:,}/{GROQ_TPD:,}</code> ({pct_tok:.1f}%)\n\n"
+        f"<b>Límite por minuto:</b> {GROQ_RPM} req/min\n"
+        f"<i>La cuota se resetea cada día a medianoche UTC.</i>"
+    )
+    await update.message.reply_text(texto, parse_mode='HTML', reply_markup=MAIN_KEYBOARD)
 
 async def ver_lista(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
     user_id = str(update.effective_user.id)
@@ -638,6 +671,8 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data[u_id] = []
         save_data(data)
         await update.message.reply_text("🧹 Lista borrada.")
+    elif t == '📊 API Status':
+        await ver_api_status(update, context)
     elif t == '❓ Ayuda':
         await update.message.reply_text("Envíame fotos de Nequi.")
 
@@ -649,6 +684,7 @@ if __name__ == '__main__':
         # Construir la aplicación con tiempos de espera extendidos (30s) para evitar 'Timed out'
         app = ApplicationBuilder().token(TOKEN).connect_timeout(30).read_timeout(30).write_timeout(30).pool_timeout(30).build()
         app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("status", ver_api_status))
         app.add_handler(MessageHandler(filters.PHOTO, process_photo))
         app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), text_handler))
         app.add_handler(CallbackQueryHandler(callback_handler))
