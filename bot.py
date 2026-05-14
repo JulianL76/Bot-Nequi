@@ -150,6 +150,12 @@ Si no encuentras un dato, usa "No encontrada". No añadas texto extra, solo el J
         clean_json = text.replace('```json', '').replace('```', '').strip()
         return json.loads(clean_json)
     except Exception as e:
+        err = str(e)
+        if "429" in err:
+            # Extraer tiempo de espera del mensaje de Groq
+            m = re.search(r'try again in ([0-9hms. ]+)', err)
+            wait = m.group(1).strip() if m else "unos minutos"
+            raise RuntimeError(f"GROQ_429:{wait}")
         logger.error(f"Error en Groq: {e}")
         return None
 
@@ -308,6 +314,23 @@ async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         try:
             datos = await analizar_comprobante(file_path)
+        except RuntimeError as e:
+            await status_msg.delete()
+            msg = str(e)
+            if msg.startswith("GROQ_429:"):
+                wait = msg.split(":", 1)[1]
+                await update.message.reply_text(
+                    f"⏳ <b>Límite de Groq alcanzado.</b>\n\n"
+                    f"Intenta de nuevo en <b>{wait}</b>.\n"
+                    f"La cuota diaria se resetea a las <b>7pm hora Colombia</b>.",
+                    parse_mode='HTML', reply_markup=MAIN_KEYBOARD
+                )
+            else:
+                await update.message.reply_text(
+                    "❌ Error al analizar la imagen. Intenta de nuevo.",
+                    reply_markup=MAIN_KEYBOARD
+                )
+            return
         except Exception as e:
             await status_msg.delete()
             await update.message.reply_text(
