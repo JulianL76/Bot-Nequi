@@ -25,17 +25,41 @@ from telegram.ext import (
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_KEY = os.getenv("GROQ_API_KEY")
+GROQ_KEY_BACKUP = os.getenv("GROQ_API_KEY_BACKUP")
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+ACTIVE_KEY_FILE = "active_key.json"
 
+_clients = {}
 if GROQ_KEY:
-    groq_client = Groq(api_key=GROQ_KEY)
+    _clients["primary"] = Groq(api_key=GROQ_KEY)
 else:
     logger.error("❌ No se encontró GROQ_API_KEY en el archivo .env")
-    groq_client = None
+if GROQ_KEY_BACKUP:
+    _clients["backup"] = Groq(api_key=GROQ_KEY_BACKUP)
+
+def get_active_key_name() -> str:
+    try:
+        if os.path.exists(ACTIVE_KEY_FILE):
+            with open(ACTIVE_KEY_FILE, "r") as f:
+                return json.load(f).get("active", "primary")
+    except Exception:
+        pass
+    return "primary"
+
+def set_active_key_name(name: str):
+    with open(ACTIVE_KEY_FILE, "w") as f:
+        json.dump({"active": name}, f)
+
+def get_groq_client():
+    return _clients.get(get_active_key_name()) or next(iter(_clients.values()), None)
+
+def _key_tag(name: str) -> str:
+    key = GROQ_KEY if name == "primary" else GROQ_KEY_BACKUP
+    return (key or "")[-6:]
 
 # Configuración de carpetas y archivos
 DATA_FILE = "listas_nequi.json"
@@ -55,28 +79,42 @@ if not os.path.exists(LOG_DIR):
 # Cuota diaria Groq
 # ---------------------------------------------------------------------------
 
-_KEY_TAG = (GROQ_KEY or "")[-6:]  # últimos 6 chars de la key como huella
-
-def load_quota() -> dict:
+def load_quota(name: str = None) -> dict:
+    if name is None:
+        name = get_active_key_name()
+    tag = _key_tag(name)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     try:
         if os.path.exists(QUOTA_FILE) and os.path.getsize(QUOTA_FILE) > 0:
             with open(QUOTA_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if data.get("date") == today and data.get("key_tag") == _KEY_TAG:
-                return {"count": data.get("count", 0), "tokens": data.get("tokens", 0)}
+                all_data = json.load(f)
+            entry = all_data.get(tag, {})
+            if entry.get("date") == today:
+                return {"count": entry.get("count", 0), "tokens": entry.get("tokens", 0)}
     except Exception:
         pass
     return {"count": 0, "tokens": 0}
 
 def increment_quota(tokens: int = 0) -> dict:
+    name = get_active_key_name()
+    tag = _key_tag(name)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    q = load_quota()
-    q["count"] += 1
-    q["tokens"] += tokens
+    try:
+        all_data = {}
+        if os.path.exists(QUOTA_FILE) and os.path.getsize(QUOTA_FILE) > 0:
+            with open(QUOTA_FILE, "r", encoding="utf-8") as f:
+                all_data = json.load(f)
+    except Exception:
+        all_data = {}
+    entry = all_data.get(tag, {})
+    if entry.get("date") != today:
+        entry = {"date": today, "count": 0, "tokens": 0}
+    entry["count"] += 1
+    entry["tokens"] += tokens
+    all_data[tag] = entry
     with open(QUOTA_FILE, "w", encoding="utf-8") as f:
-        json.dump({"date": today, "key_tag": _KEY_TAG, "count": q["count"], "tokens": q["tokens"]}, f)
-    return q
+        json.dump(all_data, f)
+    return {"count": entry["count"], "tokens": entry["tokens"]}
 
 # ---------------------------------------------------------------------------
 # Persistencia
@@ -137,32 +175,49 @@ async def analizar_comprobante(path):
               'Dato ausente: "No encontrada".')
     try:
         image_data = await asyncio.to_thread(_resize_image, path)
-        response = await asyncio.to_thread(
-            groq_client.chat.completions.create,
-            model=GROQ_MODEL,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}},
-                    {"type": "text", "text": prompt}
-                ]
-            }],
-            max_tokens=200,
-            temperature=0
-        )
-
-        tokens_usados = getattr(response.usage, "total_tokens", 0) or 0
-        increment_quota(tokens_usados)
-        text = response.choices[0].message.content.strip()
-        clean_json = text.replace('```json', '').replace('```', '').strip()
-        return json.loads(clean_json)
-    except Exception as e:
-        err = str(e)
+        last_err = None
+        for attempt in range(2):
+            try:
+                response = await asyncio.to_thread(
+                    get_groq_client().chat.completions.create,
+                    model=GROQ_MODEL,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}},
+                            {"type": "text", "text": prompt}
+                        ]
+                    }],
+                    max_tokens=200,
+                    temperature=0
+                )
+                tokens_usados = getattr(response.usage, "total_tokens", 0) or 0
+                increment_quota(tokens_usados)
+                text = response.choices[0].message.content.strip()
+                clean_json = text.replace('```json', '').replace('```', '').strip()
+                return json.loads(clean_json)
+            except Exception as e:
+                if "429" in str(e) and attempt == 0:
+                    active = get_active_key_name()
+                    other = "backup" if active == "primary" else "primary"
+                    if other in _clients:
+                        set_active_key_name(other)
+                        logger.warning(f"429 en key {active} — cambiando a {other}")
+                        last_err = e
+                        continue
+                last_err = e
+                break
+        err = str(last_err) if last_err else ""
         if "429" in err:
-            # Extraer tiempo de espera del mensaje de Groq
             m = re.search(r'try again in ([0-9hms. ]+)', err)
             wait = m.group(1).strip() if m else "unos minutos"
             raise RuntimeError(f"GROQ_429:{wait}")
+        if last_err:
+            logger.error(f"Error en Groq: {last_err}")
+        return None
+    except RuntimeError:
+        raise
+    except Exception as e:
         logger.error(f"Error en Groq: {e}")
         return None
 
@@ -273,32 +328,40 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=MAIN_KEYBOARD
     )
 
-async def ver_api_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = load_quota()
-    count = q["count"]
-    tokens = q["tokens"]
-
-    pct_req = count / GROQ_RPD * 100
-    pct_tok = tokens / GROQ_TPD * 100
+def _build_api_status() -> tuple:
+    active = get_active_key_name()
 
     def barra(pct):
-        filled = int(pct / 10)
+        filled = int(min(pct, 100) / 10)
         return "█" * filled + "░" * (10 - filled)
 
-    estado_key = "🟢 Configurada" if groq_client else "🔴 No configurada"
+    texto = f"🤖 <b>Estado API Groq</b>\n<b>Modelo:</b> <code>{GROQ_MODEL}</code>\n\n"
+    for name, label in [("primary", "Principal"), ("backup", "Backup")]:
+        if name not in _clients:
+            continue
+        marker = "▶ " if name == active else "    "
+        q = load_quota(name)
+        count, tokens = q["count"], q["tokens"]
+        pct_req = count / GROQ_RPD * 100
+        pct_tok = tokens / GROQ_TPD * 100
+        texto += (
+            f"{marker}🔑 <b>Key {label}</b>\n"
+            f"Solicitudes: {barra(pct_req)} <code>{count}/{GROQ_RPD}</code> ({pct_req:.1f}%)\n"
+            f"Tokens: {barra(pct_tok)} <code>{tokens:,}/{GROQ_TPD:,}</code> ({pct_tok:.1f}%)\n\n"
+        )
+    texto += f"<b>Límite:</b> {GROQ_RPM} req/min | reset 7pm Colombia"
 
-    texto = (
-        f"🤖 <b>Estado API Groq</b>\n\n"
-        f"<b>Modelo:</b> <code>{GROQ_MODEL}</code>\n"
-        f"<b>API Key:</b> {estado_key}\n\n"
-        f"<b>Solicitudes hoy</b>\n"
-        f"{barra(pct_req)} <code>{count}/{GROQ_RPD}</code> ({pct_req:.1f}%)\n\n"
-        f"<b>Tokens hoy</b>\n"
-        f"{barra(pct_tok)} <code>{tokens:,}/{GROQ_TPD:,}</code> ({pct_tok:.1f}%)\n\n"
-        f"<b>Límite por minuto:</b> {GROQ_RPM} req/min\n"
-        f"<i>La cuota se resetea a las 7pm hora Colombia (medianoche UTC).</i>"
-    )
-    await update.message.reply_text(texto, parse_mode='HTML', reply_markup=MAIN_KEYBOARD)
+    btns = []
+    if len(_clients) > 1:
+        other = "backup" if active == "primary" else "primary"
+        other_label = "Backup" if other == "backup" else "Principal"
+        btns.append([InlineKeyboardButton(f"🔄 Cambiar a Key {other_label}", callback_data="switch_key")])
+    return texto, InlineKeyboardMarkup(btns) if btns else None
+
+async def ver_api_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    texto, markup = _build_api_status()
+    await update.message.reply_text(texto, parse_mode='HTML',
+                                    reply_markup=markup or MAIN_KEYBOARD)
 
 async def ver_lista(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
     user_id = str(update.effective_user.id)
@@ -438,6 +501,20 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Botón decorativo sin acción
     if raw == "noop":
+        return
+
+    # --- CAMBIAR KEY ACTIVA ---
+    if raw == "switch_key":
+        active = get_active_key_name()
+        other = "backup" if active == "primary" else "primary"
+        if other in _clients:
+            set_active_key_name(other)
+            other_label = "Backup" if other == "backup" else "Principal"
+            await query.answer(f"✅ Cambiado a Key {other_label}")
+            texto, markup = _build_api_status()
+            await query.edit_message_text(texto, parse_mode='HTML', reply_markup=markup)
+        else:
+            await query.answer("❌ Key backup no configurada")
         return
 
     # --- DESCARGAS ---
