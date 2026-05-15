@@ -197,14 +197,17 @@ async def analizar_comprobante(path):
                 clean_json = text.replace('```json', '').replace('```', '').strip()
                 return json.loads(clean_json)
             except Exception as e:
-                if "429" in str(e) and attempt == 0:
-                    active = get_active_key_name()
-                    other = "backup" if active == "primary" else "primary"
-                    if other in _clients:
-                        set_active_key_name(other)
-                        logger.warning(f"429 en key {active} — cambiando a {other}")
-                        last_err = e
-                        continue
+                err_str = str(e)
+                if "429" in err_str and attempt == 0:
+                    es_cuota_diaria = any(x in err_str for x in ("per day", "PerDay", "TPD", "RPD"))
+                    if es_cuota_diaria:
+                        active = get_active_key_name()
+                        other = "backup" if active == "primary" else "primary"
+                        if other in _clients:
+                            set_active_key_name(other)
+                            logger.warning(f"Cuota diaria agotada en key {active} — cambiando a {other}")
+                            last_err = e
+                            continue
                 last_err = e
                 break
         err = str(last_err) if last_err else ""
