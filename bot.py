@@ -99,16 +99,10 @@ def load_quota(name: str = None) -> dict:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     entry = _load_all_quota().get(tag, {})
     if entry.get("date") == today:
-        return {
-            "count":         entry.get("count", 0),
-            "tokens":        entry.get("tokens", 0),
-            "rem_tokens":    entry.get("rem_tokens", -1),
-            "rem_requests":  entry.get("rem_requests", -1),
-            "exhausted":     entry.get("exhausted_until", "") > datetime.now(timezone.utc).isoformat(),
-        }
-    return {"count": 0, "tokens": 0, "rem_tokens": -1, "rem_requests": -1, "exhausted": False}
+        return {"count": entry.get("count", 0), "tokens": entry.get("tokens", 0)}
+    return {"count": 0, "tokens": 0}
 
-def update_quota_from_headers(headers, tokens_used: int):
+def increment_quota(tokens: int = 0):
     name = get_active_key_name()
     tag = _key_tag(name)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -117,35 +111,9 @@ def update_quota_from_headers(headers, tokens_used: int):
     if entry.get("date") != today:
         entry = {"date": today, "count": 0, "tokens": 0}
     entry["count"] += 1
-    entry["tokens"] += tokens_used
-    # Datos reales de Groq
-    def _int(h, default=-1):
-        try: return int(headers.get(h, default))
-        except: return default
-    entry["rem_tokens"]   = _int("x-ratelimit-remaining-tokens")
-    entry["rem_requests"] = _int("x-ratelimit-remaining-requests")
-    entry["lim_tokens"]   = _int("x-ratelimit-limit-tokens")
-    entry["lim_requests"] = _int("x-ratelimit-limit-requests")
+    entry["tokens"] += tokens
     all_data[tag] = entry
     _save_all_quota(all_data)
-    return entry
-
-def mark_key_exhausted(name: str):
-    from datetime import timedelta
-    tag = _key_tag(name)
-    now = datetime.now(timezone.utc)
-    next_midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    all_data = _load_all_quota()
-    entry = all_data.get(tag, {})
-    entry["exhausted_until"] = next_midnight.isoformat()
-    all_data[tag] = entry
-    _save_all_quota(all_data)
-
-def is_key_exhausted(name: str) -> bool:
-    tag = _key_tag(name)
-    entry = _load_all_quota().get(tag, {})
-    until = entry.get("exhausted_until", "")
-    return bool(until) and until > datetime.now(timezone.utc).isoformat()
 
 # ---------------------------------------------------------------------------
 # Persistencia
@@ -213,13 +181,12 @@ async def analizar_comprobante(path):
         last_err = None
         for attempt in range(2):
             try:
-                raw = await asyncio.to_thread(
-                    get_groq_client().chat.completions.with_raw_response.create,
+                response = await asyncio.to_thread(
+                    get_groq_client().chat.completions.create,
                     model=GROQ_MODEL, messages=msgs, max_tokens=200, temperature=0
                 )
-                response = raw.parse()
                 tokens_usados = getattr(response.usage, "total_tokens", 0) or 0
-                update_quota_from_headers(dict(raw.headers), tokens_usados)
+                increment_quota(tokens_usados)
                 text = response.choices[0].message.content.strip()
                 clean_json = text.replace('```json', '').replace('```', '').strip()
                 return json.loads(clean_json)
@@ -229,14 +196,12 @@ async def analizar_comprobante(path):
                     es_diaria = any(x in err_str for x in ("per day", "PerDay", "TPD", "RPD"))
                     if es_diaria:
                         active = get_active_key_name()
-                        mark_key_exhausted(active)
                         other = "backup" if active == "primary" else "primary"
-                        if other in _clients and not is_key_exhausted(other):
+                        if other in _clients:
                             set_active_key_name(other)
                             logger.warning(f"Cuota diaria agotada en key {active} — cambiando a {other}")
                             last_err = e
                             continue
-                        logger.warning(f"Ambas keys agotadas, no se cambia")
                 last_err = e
                 break
         err = str(last_err) if last_err else ""
@@ -374,24 +339,12 @@ def _build_api_status() -> tuple:
             continue
         marker = "▶ " if name == active else "    "
         q = load_quota(name)
-        agotada = "🔴 Agotada hoy" if q["exhausted"] else "🟢"
-        count = q["count"]
-
-        # Tokens: usar dato real de Groq si está disponible
-        rem_tok = q["rem_tokens"]
-        if rem_tok >= 0:
-            used_tok = GROQ_TPD - rem_tok
-            b, pct = barra(used_tok, GROQ_TPD)
-            tok_line = f"Tokens (real): {b} <code>{used_tok:,}/{GROQ_TPD:,}</code> ({pct:.1f}%)"
-        else:
-            used_tok = q["tokens"]
-            b, pct = barra(used_tok, GROQ_TPD)
-            tok_line = f"Tokens (local): {b} <code>{used_tok:,}/{GROQ_TPD:,}</code> ({pct:.1f}%)"
-
+        count, tokens = q["count"], q["tokens"]
+        b, pct = barra(tokens, GROQ_TPD)
         texto += (
-            f"{marker}{agotada} <b>Key {label}</b>\n"
-            f"Solicitudes hoy: <code>{count}</code>\n"
-            f"{tok_line}\n\n"
+            f"{marker}🔑 <b>Key {label}</b>\n"
+            f"Solicitudes: {barra(count, GROQ_RPD)[0]} <code>{count}/{GROQ_RPD}</code>\n"
+            f"Tokens: {b} <code>{tokens:,}/{GROQ_TPD:,}</code> ({pct:.1f}%)\n\n"
         )
     texto += f"<b>Límite:</b> {GROQ_RPM} req/min | reset 7pm Colombia"
 
