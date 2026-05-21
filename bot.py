@@ -360,6 +360,61 @@ async def ver_api_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(texto, parse_mode='HTML',
                                     reply_markup=markup or MAIN_KEYBOARD)
 
+def _btns_429():
+    """Botones inline para cuando Groq devuelve 429."""
+    active = get_active_key_name()
+    other = "backup" if active == "primary" else "primary"
+    row = [InlineKeyboardButton("🔄 Reintentar", callback_data="groq_retry")]
+    if other in _clients:
+        other_label = "Backup" if other == "backup" else "Principal"
+        row.append(InlineKeyboardButton(f"🔀 Usar Key {other_label}", callback_data="groq_switch_retry"))
+    return InlineKeyboardMarkup([row])
+
+async def _mostrar_resultado(datos, user_id, final_path, p_id, context, send_fn):
+    """Muestra los datos detectados y los botones de acción."""
+    res_de   = datos.get("de",    "No encontrada")
+    res_valor = datos.get("valor", "$0")
+    res_fecha = datos.get("fecha", "No encontrada")
+    res_hora  = datos.get("hora",  "No encontrada")
+    res_ref   = datos.get("ref",   "No encontrada")
+
+    if res_ref == "No encontrada" or res_ref.strip().upper().startswith('S'):
+        res_de = "Corresponsal"
+
+    user_list = load_data().get(user_id, [])
+    dup = buscar_duplicado(user_list, res_ref)
+
+    context.user_data[p_id] = {
+        "de": res_de, "valor": res_valor,
+        "fecha": res_fecha, "hora": res_hora, "ref": res_ref,
+        "img_log": os.path.basename(final_path)
+    }
+
+    texto = (f"✨ <b>Datos Detectados por IA:</b>\n\n"
+             f"👤 <b>Contacto:</b> <code>{html.escape(res_de)}</code>\n"
+             f"💰 <b>Valor:</b> <code>{html.escape(res_valor)}</code>\n"
+             f"📅 <b>Fecha:</b> <code>{html.escape(res_fecha)}</code>\n"
+             f"🕒 <b>Hora:</b> <code>{html.escape(res_hora)}</code>\n"
+             f"🔢 <b>Ref:</b> <code>{html.escape(res_ref)}</code>")
+
+    if dup:
+        dup_idx, dup_item = dup
+        texto += (f"\n\n⚠️ <b>Posible duplicado:</b> esta referencia ya está "
+                  f"en la factura #{dup_idx} de {html.escape(dup_item.get('de', '?'))} "
+                  f"({html.escape(dup_item['valor'])})")
+        btns = [
+            [InlineKeyboardButton("⚠️ Guardar igual", callback_data=f"force_save_{p_id}"),
+             InlineKeyboardButton("✏️ Editar", callback_data=f"edit_menu_{p_id}")],
+            [InlineKeyboardButton("❌ Descartar", callback_data=f"cancel_{p_id}")]
+        ]
+    else:
+        btns = [
+            [InlineKeyboardButton("✅ Guardar", callback_data=f"save_{p_id}"),
+             InlineKeyboardButton("✏️ Editar", callback_data=f"edit_menu_{p_id}")],
+            [InlineKeyboardButton("❌ Descartar", callback_data=f"cancel_{p_id}")]
+        ]
+    await send_fn(texto, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(btns))
+
 async def ver_lista(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
     user_id = str(update.effective_user.id)
     user_list = load_data().get(user_id, [])
@@ -372,118 +427,79 @@ async def ver_lista(update: Update, context: ContextTypes.DEFAULT_TYPE, page: in
     await update.message.reply_text(texto, parse_mode='HTML', reply_markup=markup)
 
 async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Si hay un 429 activo, rechazar nuevas imágenes hasta que el usuario use los botones
+    if context.user_data.get("groq_paused"):
+        await update.message.reply_text(
+            "⏳ <b>Bot pausado</b> — hay un límite activo de Groq.\n"
+            "Usa los botones del último mensaje para reintentar o cambiar de key.",
+            parse_mode='HTML', reply_markup=MAIN_KEYBOARD
+        )
+        return
+
     status_msg = await update.message.reply_text("🔍 Analizando con IA...")
     file_path = f"temp_{update.message.message_id}.jpg"
+    user_id = str(update.effective_user.id)
 
     try:
         photo_file = await update.message.photo[-1].get_file()
         await photo_file.download_to_drive(file_path)
 
+        # Mover imagen a LOG_DIR antes de analizar para poder reutilizarla en retry
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        final_image_name = f"{timestamp}_{user_id}_pending.jpg"
+        final_path = os.path.join(LOG_DIR, final_image_name)
+        os.rename(file_path, final_path)
+        file_path = None
+
+        p_id = str(update.message.message_id)
+
         try:
-            datos = await analizar_comprobante(file_path)
+            datos = await analizar_comprobante(final_path)
         except RuntimeError as e:
             await status_msg.delete()
             msg = str(e)
             if msg.startswith("GROQ_429:"):
                 wait = msg.split(":", 1)[1]
+                context.user_data["groq_paused"] = True
+                context.user_data["groq_pending"] = {"img_path": final_path, "p_id": p_id}
                 await update.message.reply_text(
                     f"⏳ <b>Límite de Groq alcanzado.</b>\n\n"
                     f"Intenta de nuevo en <b>{wait}</b>.\n"
-                    f"La cuota diaria se resetea a las <b>7pm hora Colombia</b>.",
-                    parse_mode='HTML', reply_markup=MAIN_KEYBOARD
+                    f"<i>El bot está pausado hasta que uses uno de los botones.</i>",
+                    parse_mode='HTML', reply_markup=_btns_429()
                 )
             else:
-                await update.message.reply_text(
-                    "❌ Error al analizar la imagen. Intenta de nuevo.",
-                    reply_markup=MAIN_KEYBOARD
-                )
+                await update.message.reply_text("❌ Error al analizar la imagen. Intenta de nuevo.",
+                                                reply_markup=MAIN_KEYBOARD)
             return
-        except Exception as e:
+        except Exception:
             await status_msg.delete()
-            await update.message.reply_text(
-                "❌ Error al analizar la imagen. Intenta de nuevo.",
-                reply_markup=MAIN_KEYBOARD
-            )
+            await update.message.reply_text("❌ Error al analizar la imagen. Intenta de nuevo.",
+                                            reply_markup=MAIN_KEYBOARD)
             return
 
         if not datos:
             await status_msg.delete()
             await update.message.reply_text(
                 "❌ No pude entender la imagen. Revisa los logs del bot para ver el error.",
-                reply_markup=MAIN_KEYBOARD
-            )
+                reply_markup=MAIN_KEYBOARD)
             return
 
-        aviso_cuota = ""
-
-        res_de = datos.get("de", "No encontrada")
-        res_valor = datos.get("valor", "$0")
-        res_fecha = datos.get("fecha", "No encontrada")
-        res_hora = datos.get("hora", "No encontrada")
-        res_ref = datos.get("ref", "No encontrada")
-
-        # --- REGLA DE NEGOCIO: Corresponsal basado en Referencia ---
-        if res_ref == "No encontrada" or res_ref.strip().upper().startswith('S'):
-            res_de = "Corresponsal"
-
-        # --- DETECCIÓN DE DUPLICADO ---
-        user_id = str(update.effective_user.id)
-        user_list = load_data().get(user_id, [])
-        dup = buscar_duplicado(user_list, res_ref)
-
-        # --- PERSISTENCIA DE IMAGEN Y LOG ---
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        ref_clean = res_ref.replace(" ", "_")
-        final_image_name = f"{timestamp}_{user_id}_{ref_clean}.jpg"
-        final_path = os.path.join(LOG_DIR, final_image_name)
-        
-        # Copiar imagen temporal a carpeta de logs en lugar de borrarla
-        os.rename(file_path, final_path)
-        file_path = None # Evitar que el finally intente borrarla
-
-        # Guardar log técnico
-        log_debug_info(user_id, datos, final_image_name)
-
-        p_id = str(update.message.message_id)
-        context.user_data[p_id] = {
-            "de": res_de, "valor": res_valor,
-            "fecha": res_fecha, "hora": res_hora, "ref": res_ref,
-            "img_log": final_image_name # Guardamos referencia a la imagen
-        }
-
-        response = (f"✨ <b>Datos Detectados por IA:</b>\n\n"
-                    f"👤 <b>Contacto:</b> <code>{html.escape(res_de)}</code>\n"
-                    f"💰 <b>Valor:</b> <code>{html.escape(res_valor)}</code>\n"
-                    f"📅 <b>Fecha:</b> <code>{html.escape(res_fecha)}</code>\n"
-                    f"🕒 <b>Hora:</b> <code>{html.escape(res_hora)}</code>\n"
-                    f"🔢 <b>Ref:</b> <code>{html.escape(res_ref)}</code>"
-                    f"{aviso_cuota}")
-
-        if dup:
-            dup_idx, dup_item = dup
-            response += (f"\n\n⚠️ <b>Posible duplicado:</b> esta referencia ya está "
-                         f"en la factura #{dup_idx} de {html.escape(dup_item.get('de', '?'))} "
-                         f"({html.escape(dup_item['valor'])})")
-            btns = [
-                [InlineKeyboardButton("⚠️ Guardar igual", callback_data=f"force_save_{p_id}"),
-                 InlineKeyboardButton("✏️ Editar", callback_data=f"edit_menu_{p_id}")],
-                [InlineKeyboardButton("❌ Descartar", callback_data=f"cancel_{p_id}")]
-            ]
-        else:
-            btns = [
-                [InlineKeyboardButton("✅ Guardar", callback_data=f"save_{p_id}"),
-                 InlineKeyboardButton("✏️ Editar", callback_data=f"edit_menu_{p_id}")],
-                [InlineKeyboardButton("❌ Descartar", callback_data=f"cancel_{p_id}")]
-            ]
+        # Renombrar imagen con la ref real ahora que la tenemos
+        ref_clean = datos.get("ref", "sin_ref").replace(" ", "_")
+        real_name = f"{timestamp}_{user_id}_{ref_clean}.jpg"
+        real_path = os.path.join(LOG_DIR, real_name)
+        os.rename(final_path, real_path)
+        log_debug_info(user_id, datos, real_name)
 
         await status_msg.delete()
-        await update.message.reply_text(response, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(btns))
+        await _mostrar_resultado(datos, user_id, real_path, p_id, context,
+                                 update.message.reply_text)
 
     except Exception as e:
         logger.error(f"Error: {e}")
         await update.message.reply_text("❌ Error al procesar la imagen.", reply_markup=MAIN_KEYBOARD)
     finally:
-        # Verificamos que file_path no sea None antes de intentar borrar
         if file_path and os.path.exists(file_path):
             os.remove(file_path)
 
@@ -498,6 +514,63 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Botón decorativo sin acción
     if raw == "noop":
+        return
+
+    # --- RETRY TRAS 429 ---
+    if raw in ("groq_retry", "groq_switch_retry"):
+        pending = context.user_data.get("groq_pending")
+        if not pending:
+            await query.answer("❌ No hay imagen pendiente")
+            return
+        if raw == "groq_switch_retry":
+            active = get_active_key_name()
+            other = "backup" if active == "primary" else "primary"
+            if other not in _clients:
+                await query.answer("❌ No hay otra key configurada")
+                return
+            set_active_key_name(other)
+            other_label = "Backup" if other == "backup" else "Principal"
+            await query.answer(f"🔀 Cambiando a Key {other_label}...")
+        else:
+            await query.answer("🔄 Reintentando...")
+
+        img_path = pending["img_path"]
+        p_id = pending["p_id"]
+
+        if not os.path.exists(img_path):
+            await query.edit_message_text("❌ La imagen ya no está disponible. Envíala de nuevo.")
+            context.user_data.pop("groq_paused", None)
+            context.user_data.pop("groq_pending", None)
+            return
+
+        await query.edit_message_text("🔍 Analizando con IA...")
+        try:
+            datos = await analizar_comprobante(img_path)
+        except RuntimeError as e:
+            msg = str(e)
+            if msg.startswith("GROQ_429:"):
+                wait = msg.split(":", 1)[1]
+                await query.edit_message_text(
+                    f"⏳ <b>Límite de Groq alcanzado.</b>\n\n"
+                    f"Intenta de nuevo en <b>{wait}</b>.",
+                    parse_mode='HTML', reply_markup=_btns_429()
+                )
+            else:
+                await query.edit_message_text("❌ Error al analizar. Intenta de nuevo.")
+            return
+        except Exception:
+            await query.edit_message_text("❌ Error al analizar. Intenta de nuevo.")
+            return
+
+        context.user_data.pop("groq_paused", None)
+        context.user_data.pop("groq_pending", None)
+
+        if not datos:
+            await query.edit_message_text("❌ No pude entender la imagen.")
+            return
+
+        await _mostrar_resultado(datos, user_id, img_path, p_id, context,
+                                 query.edit_message_text)
         return
 
     # --- CAMBIAR KEY ACTIVA ---
