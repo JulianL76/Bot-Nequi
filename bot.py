@@ -9,6 +9,7 @@ import base64
 import io
 from PIL import Image
 from groq import Groq
+from google import genai as google_genai
 import pandas as pd
 from datetime import datetime, timezone
 from dotenv import load_dotenv
@@ -26,6 +27,7 @@ load_dotenv()
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_KEY = os.getenv("GROQ_API_KEY")
 GROQ_KEY_BACKUP = os.getenv("GROQ_API_KEY_BACKUP")
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -56,6 +58,11 @@ def set_active_key_name(name: str):
 
 def get_groq_client():
     return _clients.get(get_active_key_name()) or next(iter(_clients.values()), None)
+
+GEMINI_MODEL = "gemini-2.0-flash-lite"
+gemini_client = google_genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
+if gemini_client:
+    logger.info("✅ Gemini configurado como fallback")
 
 def _key_tag(name: str) -> str:
     key = GROQ_KEY if name == "primary" else GROQ_KEY_BACKUP
@@ -167,16 +174,33 @@ def _resize_image(path: str, max_px: int = 768) -> str:
         img.save(buf, format="JPEG", quality=85, optimize=True)
         return base64.b64encode(buf.getvalue()).decode("utf-8")
 
+_PROMPT = ('JSON solo, sin texto extra:\n'
+           '{"de":"remitente o Corresponsal","valor":"$X.XXX","fecha":"DD de Mes AAAA",'
+           '"hora":"H:MM am/pm","ref":"numero"}\n'
+           'Dato ausente: "No encontrada".')
+
+def _parse_json_response(text: str):
+    clean = text.strip().replace('```json', '').replace('```', '').strip()
+    return json.loads(clean)
+
+async def _analizar_con_gemini(path: str):
+    def _call():
+        with Image.open(path) as img:
+            img = img.convert("RGB")
+            pil_img = img.copy()
+        response = gemini_client.models.generate_content(
+            model=GEMINI_MODEL, contents=[_PROMPT, pil_img]
+        )
+        return _parse_json_response(response.text)
+    logger.info("Usando Gemini como fallback")
+    return await asyncio.to_thread(_call)
+
 async def analizar_comprobante(path):
-    prompt = ('JSON solo, sin texto extra:\n'
-              '{"de":"remitente o Corresponsal","valor":"$X.XXX","fecha":"DD de Mes AAAA",'
-              '"hora":"H:MM am/pm","ref":"numero"}\n'
-              'Dato ausente: "No encontrada".')
     try:
         image_data = await asyncio.to_thread(_resize_image, path)
         msgs = [{"role": "user", "content": [
             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}},
-            {"type": "text", "text": prompt}
+            {"type": "text", "text": _PROMPT}
         ]}]
         last_err = None
         for attempt in range(2):
@@ -187,9 +211,7 @@ async def analizar_comprobante(path):
                 )
                 tokens_usados = getattr(response.usage, "total_tokens", 0) or 0
                 increment_quota(tokens_usados)
-                text = response.choices[0].message.content.strip()
-                clean_json = text.replace('```json', '').replace('```', '').strip()
-                return json.loads(clean_json)
+                return _parse_json_response(response.choices[0].message.content)
             except Exception as e:
                 err_str = str(e)
                 if "429" in err_str and attempt == 0:
@@ -204,13 +226,21 @@ async def analizar_comprobante(path):
                             continue
                 last_err = e
                 break
+
+        # Groq falló con 429 — intentar Gemini (distinto servidor, distinta IP)
+        if last_err and "429" in str(last_err) and gemini_client:
+            try:
+                return await _analizar_con_gemini(path)
+            except Exception as gem_err:
+                logger.warning(f"Gemini también falló: {gem_err}")
+
         err = str(last_err) if last_err else ""
         if "429" in err:
             m = re.search(r'try again in ([0-9hms. ]+)', err)
             wait = m.group(1).strip() if m else "unos minutos"
             raise RuntimeError(f"GROQ_429:{wait}")
         if last_err:
-            logger.error(f"Error en Groq: {last_err}")
+            logger.error(f"Error en análisis: {last_err}")
         return None
     except RuntimeError:
         raise
@@ -346,7 +376,9 @@ def _build_api_status() -> tuple:
             f"Solicitudes: {barra(count, GROQ_RPD)[0]} <code>{count}/{GROQ_RPD}</code>\n"
             f"Tokens: {b} <code>{tokens:,}/{GROQ_TPD:,}</code> ({pct:.1f}%)\n\n"
         )
-    texto += f"<b>Límite:</b> {GROQ_RPM} req/min | reset 7pm Colombia"
+    gem_estado = "🟢 Configurado" if gemini_client else "⚫ No configurado"
+    texto += f"<b>Límite:</b> {GROQ_RPM} req/min | reset 7pm Colombia\n\n"
+    texto += f"🔁 <b>Fallback Gemini</b> ({GEMINI_MODEL}): {gem_estado}"
 
     btns = []
     if len(_clients) > 1:
