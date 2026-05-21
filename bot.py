@@ -79,42 +79,73 @@ if not os.path.exists(LOG_DIR):
 # Cuota diaria Groq
 # ---------------------------------------------------------------------------
 
+def _load_all_quota() -> dict:
+    try:
+        if os.path.exists(QUOTA_FILE) and os.path.getsize(QUOTA_FILE) > 0:
+            with open(QUOTA_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+def _save_all_quota(all_data: dict):
+    with open(QUOTA_FILE, "w", encoding="utf-8") as f:
+        json.dump(all_data, f)
+
 def load_quota(name: str = None) -> dict:
     if name is None:
         name = get_active_key_name()
     tag = _key_tag(name)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    try:
-        if os.path.exists(QUOTA_FILE) and os.path.getsize(QUOTA_FILE) > 0:
-            with open(QUOTA_FILE, "r", encoding="utf-8") as f:
-                all_data = json.load(f)
-            entry = all_data.get(tag, {})
-            if entry.get("date") == today:
-                return {"count": entry.get("count", 0), "tokens": entry.get("tokens", 0)}
-    except Exception:
-        pass
-    return {"count": 0, "tokens": 0}
+    entry = _load_all_quota().get(tag, {})
+    if entry.get("date") == today:
+        return {
+            "count":         entry.get("count", 0),
+            "tokens":        entry.get("tokens", 0),
+            "rem_tokens":    entry.get("rem_tokens", -1),
+            "rem_requests":  entry.get("rem_requests", -1),
+            "exhausted":     entry.get("exhausted_until", "") > datetime.now(timezone.utc).isoformat(),
+        }
+    return {"count": 0, "tokens": 0, "rem_tokens": -1, "rem_requests": -1, "exhausted": False}
 
-def increment_quota(tokens: int = 0) -> dict:
+def update_quota_from_headers(headers, tokens_used: int):
     name = get_active_key_name()
     tag = _key_tag(name)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    try:
-        all_data = {}
-        if os.path.exists(QUOTA_FILE) and os.path.getsize(QUOTA_FILE) > 0:
-            with open(QUOTA_FILE, "r", encoding="utf-8") as f:
-                all_data = json.load(f)
-    except Exception:
-        all_data = {}
+    all_data = _load_all_quota()
     entry = all_data.get(tag, {})
     if entry.get("date") != today:
         entry = {"date": today, "count": 0, "tokens": 0}
     entry["count"] += 1
-    entry["tokens"] += tokens
+    entry["tokens"] += tokens_used
+    # Datos reales de Groq
+    def _int(h, default=-1):
+        try: return int(headers.get(h, default))
+        except: return default
+    entry["rem_tokens"]   = _int("x-ratelimit-remaining-tokens")
+    entry["rem_requests"] = _int("x-ratelimit-remaining-requests")
+    entry["lim_tokens"]   = _int("x-ratelimit-limit-tokens")
+    entry["lim_requests"] = _int("x-ratelimit-limit-requests")
     all_data[tag] = entry
-    with open(QUOTA_FILE, "w", encoding="utf-8") as f:
-        json.dump(all_data, f)
-    return {"count": entry["count"], "tokens": entry["tokens"]}
+    _save_all_quota(all_data)
+    return entry
+
+def mark_key_exhausted(name: str):
+    from datetime import timedelta
+    tag = _key_tag(name)
+    now = datetime.now(timezone.utc)
+    next_midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    all_data = _load_all_quota()
+    entry = all_data.get(tag, {})
+    entry["exhausted_until"] = next_midnight.isoformat()
+    all_data[tag] = entry
+    _save_all_quota(all_data)
+
+def is_key_exhausted(name: str) -> bool:
+    tag = _key_tag(name)
+    entry = _load_all_quota().get(tag, {})
+    until = entry.get("exhausted_until", "")
+    return bool(until) and until > datetime.now(timezone.utc).isoformat()
 
 # ---------------------------------------------------------------------------
 # Persistencia
@@ -175,39 +206,37 @@ async def analizar_comprobante(path):
               'Dato ausente: "No encontrada".')
     try:
         image_data = await asyncio.to_thread(_resize_image, path)
+        msgs = [{"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}},
+            {"type": "text", "text": prompt}
+        ]}]
         last_err = None
         for attempt in range(2):
             try:
-                response = await asyncio.to_thread(
-                    get_groq_client().chat.completions.create,
-                    model=GROQ_MODEL,
-                    messages=[{
-                        "role": "user",
-                        "content": [
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}},
-                            {"type": "text", "text": prompt}
-                        ]
-                    }],
-                    max_tokens=200,
-                    temperature=0
+                raw = await asyncio.to_thread(
+                    get_groq_client().chat.completions.with_raw_response.create,
+                    model=GROQ_MODEL, messages=msgs, max_tokens=200, temperature=0
                 )
+                response = raw.parse()
                 tokens_usados = getattr(response.usage, "total_tokens", 0) or 0
-                increment_quota(tokens_usados)
+                update_quota_from_headers(dict(raw.headers), tokens_usados)
                 text = response.choices[0].message.content.strip()
                 clean_json = text.replace('```json', '').replace('```', '').strip()
                 return json.loads(clean_json)
             except Exception as e:
                 err_str = str(e)
                 if "429" in err_str and attempt == 0:
-                    es_cuota_diaria = any(x in err_str for x in ("per day", "PerDay", "TPD", "RPD"))
-                    if es_cuota_diaria:
+                    es_diaria = any(x in err_str for x in ("per day", "PerDay", "TPD", "RPD"))
+                    if es_diaria:
                         active = get_active_key_name()
+                        mark_key_exhausted(active)
                         other = "backup" if active == "primary" else "primary"
-                        if other in _clients:
+                        if other in _clients and not is_key_exhausted(other):
                             set_active_key_name(other)
                             logger.warning(f"Cuota diaria agotada en key {active} — cambiando a {other}")
                             last_err = e
                             continue
+                        logger.warning(f"Ambas keys agotadas, no se cambia")
                 last_err = e
                 break
         err = str(last_err) if last_err else ""
@@ -334,9 +363,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def _build_api_status() -> tuple:
     active = get_active_key_name()
 
-    def barra(pct):
-        filled = int(min(pct, 100) / 10)
-        return "█" * filled + "░" * (10 - filled)
+    def barra(used, total):
+        pct = min(used / total * 100, 100) if total > 0 else 0
+        filled = int(pct / 10)
+        return "█" * filled + "░" * (10 - filled), pct
 
     texto = f"🤖 <b>Estado API Groq</b>\n<b>Modelo:</b> <code>{GROQ_MODEL}</code>\n\n"
     for name, label in [("primary", "Principal"), ("backup", "Backup")]:
@@ -344,13 +374,24 @@ def _build_api_status() -> tuple:
             continue
         marker = "▶ " if name == active else "    "
         q = load_quota(name)
-        count, tokens = q["count"], q["tokens"]
-        pct_req = count / GROQ_RPD * 100
-        pct_tok = tokens / GROQ_TPD * 100
+        agotada = "🔴 Agotada hoy" if q["exhausted"] else "🟢"
+        count = q["count"]
+
+        # Tokens: usar dato real de Groq si está disponible
+        rem_tok = q["rem_tokens"]
+        if rem_tok >= 0:
+            used_tok = GROQ_TPD - rem_tok
+            b, pct = barra(used_tok, GROQ_TPD)
+            tok_line = f"Tokens (real): {b} <code>{used_tok:,}/{GROQ_TPD:,}</code> ({pct:.1f}%)"
+        else:
+            used_tok = q["tokens"]
+            b, pct = barra(used_tok, GROQ_TPD)
+            tok_line = f"Tokens (local): {b} <code>{used_tok:,}/{GROQ_TPD:,}</code> ({pct:.1f}%)"
+
         texto += (
-            f"{marker}🔑 <b>Key {label}</b>\n"
-            f"Solicitudes: {barra(pct_req)} <code>{count}/{GROQ_RPD}</code> ({pct_req:.1f}%)\n"
-            f"Tokens: {barra(pct_tok)} <code>{tokens:,}/{GROQ_TPD:,}</code> ({pct_tok:.1f}%)\n\n"
+            f"{marker}{agotada} <b>Key {label}</b>\n"
+            f"Solicitudes hoy: <code>{count}</code>\n"
+            f"{tok_line}\n\n"
         )
     texto += f"<b>Límite:</b> {GROQ_RPM} req/min | reset 7pm Colombia"
 
