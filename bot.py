@@ -26,47 +26,36 @@ from telegram.ext import (
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_KEY = os.getenv("GROQ_API_KEY")
-GROQ_KEY_BACKUP = os.getenv("GROQ_API_KEY_BACKUP")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
-ACTIVE_KEY_FILE = "active_key.json"
+PREFERRED_IA_FILE = "preferred_ia.json"
 
-_clients = {}
-if GROQ_KEY:
-    _clients["primary"] = Groq(api_key=GROQ_KEY)
-else:
+groq_client = Groq(api_key=GROQ_KEY) if GROQ_KEY else None
+if not groq_client:
     logger.error("❌ No se encontró GROQ_API_KEY en el archivo .env")
-if GROQ_KEY_BACKUP:
-    _clients["backup"] = Groq(api_key=GROQ_KEY_BACKUP)
 
-def get_active_key_name() -> str:
+def get_preferred_ia() -> str:
     try:
-        if os.path.exists(ACTIVE_KEY_FILE):
-            with open(ACTIVE_KEY_FILE, "r") as f:
-                return json.load(f).get("active", "primary")
+        if os.path.exists(PREFERRED_IA_FILE):
+            with open(PREFERRED_IA_FILE, "r") as f:
+                return json.load(f).get("ia", "groq")
     except Exception:
         pass
-    return "primary"
+    return "groq"
 
-def set_active_key_name(name: str):
-    with open(ACTIVE_KEY_FILE, "w") as f:
-        json.dump({"active": name}, f)
+def set_preferred_ia(ia: str):
+    with open(PREFERRED_IA_FILE, "w") as f:
+        json.dump({"ia": ia}, f)
 
-def get_groq_client():
-    return _clients.get(get_active_key_name()) or next(iter(_clients.values()), None)
-
-GEMINI_MODEL = "gemini-2.0-flash-lite"
+GEMINI_MODEL = "gemini-2.5-flash"
 gemini_client = google_genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 if gemini_client:
     logger.info("✅ Gemini configurado como fallback")
 
-def _key_tag(name: str) -> str:
-    key = GROQ_KEY if name == "primary" else GROQ_KEY_BACKUP
-    return (key or "")[-6:]
 
 # Configuración de carpetas y archivos
 DATA_FILE = "listas_nequi.json"
@@ -99,27 +88,22 @@ def _save_all_quota(all_data: dict):
     with open(QUOTA_FILE, "w", encoding="utf-8") as f:
         json.dump(all_data, f)
 
-def load_quota(name: str = None) -> dict:
-    if name is None:
-        name = get_active_key_name()
-    tag = _key_tag(name)
+def load_quota() -> dict:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    entry = _load_all_quota().get(tag, {})
+    entry = _load_all_quota().get("groq", {})
     if entry.get("date") == today:
         return {"count": entry.get("count", 0), "tokens": entry.get("tokens", 0)}
     return {"count": 0, "tokens": 0}
 
 def increment_quota(tokens: int = 0):
-    name = get_active_key_name()
-    tag = _key_tag(name)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     all_data = _load_all_quota()
-    entry = all_data.get(tag, {})
+    entry = all_data.get("groq", {})
     if entry.get("date") != today:
         entry = {"date": today, "count": 0, "tokens": 0}
     entry["count"] += 1
     entry["tokens"] += tokens
-    all_data[tag] = entry
+    all_data["groq"] = entry
     _save_all_quota(all_data)
 
 # ---------------------------------------------------------------------------
@@ -195,45 +179,61 @@ async def _analizar_con_gemini(path: str):
     logger.info("Usando Gemini como fallback")
     return await asyncio.to_thread(_call)
 
+async def _analizar_con_groq(path):
+    image_data = await asyncio.to_thread(_resize_image, path)
+    msgs = [{"role": "user", "content": [
+        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}},
+        {"type": "text", "text": _PROMPT}
+    ]}]
+    try:
+        response = await asyncio.to_thread(
+            groq_client.chat.completions.create,
+            model=GROQ_MODEL, messages=msgs, max_tokens=200, temperature=0
+        )
+        tokens_usados = getattr(response.usage, "total_tokens", 0) or 0
+        increment_quota(tokens_usados)
+        return _parse_json_response(response.choices[0].message.content)
+    except Exception as e:
+        raise e
+
+
 async def analizar_comprobante(path):
     try:
-        image_data = await asyncio.to_thread(_resize_image, path)
-        msgs = [{"role": "user", "content": [
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}},
-            {"type": "text", "text": _PROMPT}
-        ]}]
-        last_err = None
-        for attempt in range(2):
-            try:
-                response = await asyncio.to_thread(
-                    get_groq_client().chat.completions.create,
-                    model=GROQ_MODEL, messages=msgs, max_tokens=200, temperature=0
-                )
-                tokens_usados = getattr(response.usage, "total_tokens", 0) or 0
-                increment_quota(tokens_usados)
-                return _parse_json_response(response.choices[0].message.content)
-            except Exception as e:
-                err_str = str(e)
-                if "429" in err_str and attempt == 0:
-                    es_diaria = any(x in err_str for x in ("per day", "PerDay", "TPD", "RPD"))
-                    if es_diaria:
-                        active = get_active_key_name()
-                        other = "backup" if active == "primary" else "primary"
-                        if other in _clients:
-                            set_active_key_name(other)
-                            logger.warning(f"Cuota diaria agotada en key {active} — cambiando a {other}")
-                            last_err = e
-                            continue
-                last_err = e
-                break
+        preferida = get_preferred_ia()
 
-        # Groq falló con 429 — intentar Gemini (distinto servidor, distinta IP)
+        if preferida == "gemini" and gemini_client:
+            try:
+                return await _analizar_con_gemini(path), "Gemini"
+            except Exception as gem_err:
+                logger.warning(f"Gemini falló, intentando Groq: {gem_err}")
+                if not groq_client:
+                    return None, None
+                try:
+                    return await _analizar_con_groq(path), "Groq"
+                except Exception as e:
+                    logger.error(f"Groq también falló: {e}")
+                    return None, None
+
+        # Preferida = groq (comportamiento por defecto)
+        last_err = None
+        try:
+            return await _analizar_con_groq(path), "Groq"
+        except Exception as e:
+            last_err = e
+
+        # Groq falló con 429 — intentar Gemini como fallback
         if last_err and "429" in str(last_err) and gemini_client:
             try:
-                return await _analizar_con_gemini(path)
+                return await _analizar_con_gemini(path), "Gemini"
             except Exception as gem_err:
+                gem_str = str(gem_err)
                 logger.warning(f"Gemini también falló: {gem_err}")
-
+                if "429" in gem_str:
+                    m = re.search(r'retry in ([0-9hms. ]+)', gem_str)
+                    gem_wait = m.group(1).strip() if m else None
+                    groq_m = re.search(r'try again in ([0-9hms. ]+)', str(last_err))
+                    wait = gem_wait or (groq_m.group(1).strip() if groq_m else "unos minutos")
+                    raise RuntimeError(f"ALL_429:{wait}")
         err = str(last_err) if last_err else ""
         if "429" in err:
             m = re.search(r'try again in ([0-9hms. ]+)', err)
@@ -241,12 +241,12 @@ async def analizar_comprobante(path):
             raise RuntimeError(f"GROQ_429:{wait}")
         if last_err:
             logger.error(f"Error en análisis: {last_err}")
-        return None
+        return None, None
     except RuntimeError:
         raise
     except Exception as e:
-        logger.error(f"Error en Groq: {e}")
-        return None
+        logger.error(f"Error en análisis: {e}")
+        return None, None
 
 # ---------------------------------------------------------------------------
 # Utilidades
@@ -341,7 +341,7 @@ def construir_resumen_guardado(lista, num):
 # ---------------------------------------------------------------------------
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
-    [['📜 Ver Lista', '🆕 Nueva Lista'], ['📊 API Status', '❓ Ayuda']],
+    [['📜 Ver Lista', '🆕 Nueva Lista'], ['📊 API Status', '🤖 IA', '❓ Ayuda']],
     resize_keyboard=True
 )
 
@@ -356,36 +356,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 def _build_api_status() -> tuple:
-    active = get_active_key_name()
-
     def barra(used, total):
         pct = min(used / total * 100, 100) if total > 0 else 0
         filled = int(pct / 10)
         return "█" * filled + "░" * (10 - filled), pct
 
-    texto = f"🤖 <b>Estado API Groq</b>\n<b>Modelo:</b> <code>{GROQ_MODEL}</code>\n\n"
-    for name, label in [("primary", "Principal"), ("backup", "Backup")]:
-        if name not in _clients:
-            continue
-        marker = "▶ " if name == active else "    "
-        q = load_quota(name)
-        count, tokens = q["count"], q["tokens"]
-        b, pct = barra(tokens, GROQ_TPD)
-        texto += (
-            f"{marker}🔑 <b>Key {label}</b>\n"
-            f"Solicitudes: {barra(count, GROQ_RPD)[0]} <code>{count}/{GROQ_RPD}</code>\n"
-            f"Tokens: {b} <code>{tokens:,}/{GROQ_TPD:,}</code> ({pct:.1f}%)\n\n"
-        )
-    gem_estado = "🟢 Configurado" if gemini_client else "⚫ No configurado"
-    texto += f"<b>Límite:</b> {GROQ_RPM} req/min | reset 7pm Colombia\n\n"
-    texto += f"🔁 <b>Fallback Gemini</b> ({GEMINI_MODEL}): {gem_estado}"
+    q = load_quota()
+    count, tokens = q["count"], q["tokens"]
+    b, pct = barra(tokens, GROQ_TPD)
+    groq_estado = "🟢 Activo" if groq_client else "⚫ No configurado"
+    gem_estado  = "🟢 Configurado" if gemini_client else "⚫ No configurado"
 
-    btns = []
-    if len(_clients) > 1:
-        other = "backup" if active == "primary" else "primary"
-        other_label = "Backup" if other == "backup" else "Principal"
-        btns.append([InlineKeyboardButton(f"🔄 Cambiar a Key {other_label}", callback_data="switch_key")])
-    return texto, InlineKeyboardMarkup(btns) if btns else None
+    texto = (
+        f"🤖 <b>Estado APIs</b>\n\n"
+        f"⚡ <b>Groq</b> ({GROQ_MODEL[:30]}): {groq_estado}\n"
+        f"Solicitudes: {barra(count, GROQ_RPD)[0]} <code>{count}/{GROQ_RPD}</code>\n"
+        f"Tokens: {b} <code>{tokens:,}/{GROQ_TPD:,}</code> ({pct:.1f}%)\n"
+        f"<i>Reset 7pm Colombia</i>\n\n"
+        f"🔁 <b>Fallback Gemini</b> ({GEMINI_MODEL}): {gem_estado}"
+    )
+    return texto, None
 
 async def ver_api_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto, markup = _build_api_status()
@@ -393,16 +383,9 @@ async def ver_api_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     reply_markup=markup or MAIN_KEYBOARD)
 
 def _btns_429():
-    """Botones inline para cuando Groq devuelve 429."""
-    active = get_active_key_name()
-    other = "backup" if active == "primary" else "primary"
-    row = [InlineKeyboardButton("🔄 Reintentar", callback_data="groq_retry")]
-    if other in _clients:
-        other_label = "Backup" if other == "backup" else "Principal"
-        row.append(InlineKeyboardButton(f"🔀 Usar Key {other_label}", callback_data="groq_switch_retry"))
-    return InlineKeyboardMarkup([row])
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Reintentar", callback_data="groq_retry")]])
 
-async def _mostrar_resultado(datos, user_id, final_path, p_id, context, send_fn):
+async def _mostrar_resultado(datos, user_id, final_path, p_id, context, send_fn, ia="Groq"):
     """Muestra los datos detectados y los botones de acción."""
     res_de   = datos.get("de",    "No encontrada")
     res_valor = datos.get("valor", "$0")
@@ -422,7 +405,8 @@ async def _mostrar_resultado(datos, user_id, final_path, p_id, context, send_fn)
         "img_log": os.path.basename(final_path)
     }
 
-    texto = (f"✨ <b>Datos Detectados por IA:</b>\n\n"
+    ia_badge = "⚡ <i>Groq</i>" if ia == "Groq" else "✨ <i>Gemini</i>"
+    texto = (f"{ia_badge} — <b>Datos Detectados:</b>\n\n"
              f"👤 <b>Contacto:</b> <code>{html.escape(res_de)}</code>\n"
              f"💰 <b>Valor:</b> <code>{html.escape(res_valor)}</code>\n"
              f"📅 <b>Fecha:</b> <code>{html.escape(res_fecha)}</code>\n"
@@ -486,16 +470,18 @@ async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         p_id = str(update.message.message_id)
 
         try:
-            datos = await analizar_comprobante(final_path)
+            datos, ia_usada = await analizar_comprobante(final_path)
         except RuntimeError as e:
             await status_msg.delete()
             msg = str(e)
-            if msg.startswith("GROQ_429:"):
+            if msg.startswith("GROQ_429:") or msg.startswith("ALL_429:"):
                 wait = msg.split(":", 1)[1]
+                all_apis = msg.startswith("ALL_429:")
                 context.user_data["groq_paused"] = True
                 context.user_data["groq_pending"] = {"img_path": final_path, "p_id": p_id}
+                detalle = "Groq y Gemini tienen límite activo." if all_apis else "Límite de Groq alcanzado."
                 await update.message.reply_text(
-                    f"⏳ <b>Límite de Groq alcanzado.</b>\n\n"
+                    f"⏳ <b>{detalle}</b>\n\n"
                     f"Intenta de nuevo en <b>{wait}</b>.\n"
                     f"<i>El bot está pausado hasta que uses uno de los botones.</i>",
                     parse_mode='HTML', reply_markup=_btns_429()
@@ -526,7 +512,7 @@ async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await status_msg.delete()
         await _mostrar_resultado(datos, user_id, real_path, p_id, context,
-                                 update.message.reply_text)
+                                 update.message.reply_text, ia=ia_usada or "Groq")
 
     except Exception as e:
         logger.error(f"Error: {e}")
@@ -549,22 +535,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # --- RETRY TRAS 429 ---
-    if raw in ("groq_retry", "groq_switch_retry"):
+    if raw == "groq_retry":
         pending = context.user_data.get("groq_pending")
         if not pending:
             await query.answer("❌ No hay imagen pendiente")
             return
-        if raw == "groq_switch_retry":
-            active = get_active_key_name()
-            other = "backup" if active == "primary" else "primary"
-            if other not in _clients:
-                await query.answer("❌ No hay otra key configurada")
-                return
-            set_active_key_name(other)
-            other_label = "Backup" if other == "backup" else "Principal"
-            await query.answer(f"🔀 Cambiando a Key {other_label}...")
-        else:
-            await query.answer("🔄 Reintentando...")
+        await query.answer("🔄 Reintentando...")
 
         img_path = pending["img_path"]
         p_id = pending["p_id"]
@@ -577,13 +553,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await query.edit_message_text("🔍 Analizando con IA...")
         try:
-            datos = await analizar_comprobante(img_path)
+            datos, ia_usada = await analizar_comprobante(img_path)
         except RuntimeError as e:
             msg = str(e)
-            if msg.startswith("GROQ_429:"):
+            if msg.startswith("GROQ_429:") or msg.startswith("ALL_429:"):
                 wait = msg.split(":", 1)[1]
+                all_apis = msg.startswith("ALL_429:")
+                detalle = "Groq y Gemini tienen límite activo." if all_apis else "Límite de Groq alcanzado."
                 await query.edit_message_text(
-                    f"⏳ <b>Límite de Groq alcanzado.</b>\n\n"
+                    f"⏳ <b>{detalle}</b>\n\n"
                     f"Intenta de nuevo en <b>{wait}</b>.",
                     parse_mode='HTML', reply_markup=_btns_429()
                 )
@@ -602,21 +580,25 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         await _mostrar_resultado(datos, user_id, img_path, p_id, context,
-                                 query.edit_message_text)
+                                 query.edit_message_text, ia=ia_usada or "Groq")
         return
 
     # --- CAMBIAR KEY ACTIVA ---
-    if raw == "switch_key":
-        active = get_active_key_name()
-        other = "backup" if active == "primary" else "primary"
-        if other in _clients:
-            set_active_key_name(other)
-            other_label = "Backup" if other == "backup" else "Principal"
-            await query.answer(f"✅ Cambiado a Key {other_label}")
-            texto, markup = _build_api_status()
-            await query.edit_message_text(texto, parse_mode='HTML', reply_markup=markup)
-        else:
-            await query.answer("❌ Key backup no configurada")
+    if raw in ("ia_set_groq", "ia_set_gemini"):
+        nueva = "groq" if raw == "ia_set_groq" else "gemini"
+        set_preferred_ia(nueva)
+        nombre = "⚡ Groq" if nueva == "groq" else "✨ Gemini"
+        await query.answer(f"✅ IA cambiada a {nombre}")
+        groq_mark  = "✅ " if nueva == "groq"   else ""
+        gemini_mark = "✅ " if nueva == "gemini" else ""
+        btns = [[
+            InlineKeyboardButton(f"{groq_mark}⚡ Groq",    callback_data="ia_set_groq"),
+            InlineKeyboardButton(f"{gemini_mark}✨ Gemini", callback_data="ia_set_gemini"),
+        ]]
+        await query.edit_message_text(
+            f"🤖 <b>IA activa:</b> {nombre}\n\nElige cuál usar para analizar los comprobantes:",
+            parse_mode='HTML', reply_markup=InlineKeyboardMarkup(btns)
+        )
         return
 
     # --- DESCARGAS ---
@@ -882,6 +864,19 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🧹 Lista borrada.")
     elif t == '📊 API Status':
         await ver_api_status(update, context)
+    elif t == '🤖 IA':
+        preferida = get_preferred_ia()
+        groq_mark  = "✅ " if preferida == "groq"   else ""
+        gemini_mark = "✅ " if preferida == "gemini" else ""
+        btns = [[
+            InlineKeyboardButton(f"{groq_mark}⚡ Groq",    callback_data="ia_set_groq"),
+            InlineKeyboardButton(f"{gemini_mark}✨ Gemini", callback_data="ia_set_gemini"),
+        ]]
+        await update.message.reply_text(
+            f"🤖 <b>IA activa:</b> {'⚡ Groq' if preferida == 'groq' else '✨ Gemini'}\n\n"
+            "Elige cuál usar para analizar los comprobantes:",
+            parse_mode='HTML', reply_markup=InlineKeyboardMarkup(btns)
+        )
     elif t == '❓ Ayuda':
         await update.message.reply_text("Envíame fotos de Nequi.")
 
