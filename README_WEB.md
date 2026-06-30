@@ -64,3 +64,22 @@ python manage.py import_json
 
 Cambiar `DATABASES` a PostgreSQL (ya instalado), `DJANGO_DEBUG=False`,
 `collectstatic`, servir con Gunicorn + Nginx y usar Redis real para Celery.
+
+## Frontend (CSS build — Tailwind + DaisyUI)
+
+El CSS se **compila** (ya no se usa el CDN de Tailwind). Design system en
+`docs/design-system.md`.
+
+- Fuente: `static_src/app.css` + `tailwind.config.js` (tema DaisyUI `nequi`, violeta/slate).
+- Salida servida: `static/css/app.css` (la carga `base.html`).
+
+```bash
+npm install          # una vez
+npm run build:css    # compila a static/css/app.css (--minify)
+npm run watch:css    # recompila al guardar (durante desarrollo)
+```
+
+> Importante: al **añadir clases Tailwind nuevas** en los templates hay que
+> recompilar (`build:css`) o tener `watch:css` corriendo; si no, las clases
+> nuevas no estarán en `app.css`. `node_modules/` está en `.gitignore`;
+> `static/css/app.css` sí se versiona para que `runserver` funcione sin build.

@@ -1,0 +1,14 @@
+{
+  "name": "gestor-nequi-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Build de CSS (Tailwind + DaisyUI) para los templates de Django.",
+  "scripts": {
+    "build:css": "tailwindcss -i ./static_src/app.css -o ./static/css/app.css --minify",
+    "watch:css": "tailwindcss -i ./static_src/app.css -o ./static/css/app.css --watch"
+  },
+  "devDependencies": {
+    "daisyui": "^4.12.10",
+    "tailwindcss": "^3.4.13"
+  }
+}

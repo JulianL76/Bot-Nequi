@@ -1,0 +1,115 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   Base: tipografía del design system + pulido global
+   ============================================================ */
+@layer base {
+  html { font-family: theme('fontFamily.sans'); }
+  body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  h1, h2, h3 { text-wrap: balance; }
+  p { text-wrap: pretty; }
+}
+
+/* ============================================================
+   Componentes propios (migrados del CDN)
+   ============================================================ */
+@layer components {
+  .nav-link { @apply flex items-center gap-3 px-3 py-2 rounded-lg text-slate-300 hover:bg-white/10 hover:text-white transition; }
+  .nav-link.active { @apply bg-primary-600 text-white shadow; }
+  .tab { @apply flex flex-col items-center justify-center gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400 transition-colors; }
+  .tab .icon-wrapper { @apply flex items-center justify-center w-12 h-8 rounded-full relative z-10; }
+  .tab .icon-wrapper svg { @apply relative z-10; }
+  .tab.active .icon-wrapper { @apply text-primary-600 dark:text-primary-400; }
+  .tab.active span { @apply text-primary-600 dark:text-primary-400 font-semibold; }
+  .sheet-link { @apply flex items-center gap-3 px-4 py-3 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700; }
+}
+
+/* Cifras alineadas verticalmente (evita saltos al actualizar contadores/valores) */
+.nums { font-variant-numeric: tabular-nums; }
+
+/* Wayfinding: barra de acento a la izquierda del item activo del sidebar */
+.nav-link { position: relative; }
+.nav-link.active::before {
+  content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 60%; border-radius: 9999px; background: white;
+}
+
+/* View Transitions para el fondo activo */
+:root { view-transition-name: none; }
+::view-transition-old(root), ::view-transition-new(root) { display: none; }
+::view-transition-group(active-tab-bg) {
+  z-index: 1;
+  animation-duration: 0.35s;
+  animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+::view-transition-group(icon-inicio),
+::view-transition-group(icon-comprob),
+::view-transition-group(icon-pend),
+::view-transition-group(icon-mas) {
+  z-index: 2;
+  animation-duration: 0.15s;
+}
+
+/* ============================================================
+   Modo oscuro para neutros usados por las plantillas
+   ============================================================ */
+.dark .bg-white { @apply bg-slate-800; }
+.dark .bg-slate-50 { @apply bg-slate-800; }
+.dark .bg-slate-100 { @apply bg-slate-700/40; }
+.dark .bg-slate-200 { @apply bg-slate-700 text-slate-200; }
+.dark .text-slate-800 { @apply text-slate-100; }
+.dark .text-slate-700 { @apply text-slate-200; }
+.dark .text-slate-600 { @apply text-slate-300; }
+.dark .text-slate-500 { @apply text-slate-400; }
+.dark .border, .dark .border-t { border-color: rgb(51 65 85) !important; }
+
+/* Selects/inputs en modo oscuro (incluye inputs sin atributo type) */
+.dark select,
+.dark textarea,
+.dark input:not([type]),
+.dark input[type="text"], .dark input[type="date"], .dark input[type="number"],
+.dark input[type="search"], .dark input[type="email"], .dark input[type="password"],
+.dark input[type="tel"] {
+  background-color: rgb(30 41 59);
+  border-color: rgb(51 65 85);
+  color: rgb(241 245 249);
+}
+.dark select option { background-color: rgb(30 41 59); color: rgb(241 245 249); }
+.dark ::placeholder { color: rgb(100 116 139); }
+
+/* Badges suaves (bg-*-100 / text-*-700|600) → versión legible en oscuro */
+.dark .bg-emerald-100 { background-color: rgba(16, 185, 129, .18); }
+.dark .bg-amber-100 { background-color: rgba(245, 158, 11, .18); }
+.dark .bg-rose-100 { background-color: rgba(244, 63, 94, .18); }
+.dark .bg-orange-100 { background-color: rgba(249, 115, 22, .18); }
+.dark .bg-pink-100 { background-color: rgba(236, 72, 153, .18); }
+.dark .bg-violet-100, .dark .bg-primary-100 { background-color: rgba(139, 92, 246, .18); }
+.dark .text-emerald-700, .dark .text-emerald-600 { color: rgb(52 211 153); }
+.dark .text-amber-700, .dark .text-amber-600 { color: rgb(251 191 36); }
+.dark .text-rose-700, .dark .text-rose-600 { color: rgb(251 113 133); }
+.dark .text-orange-700, .dark .text-orange-600 { color: rgb(251 146 60); }
+.dark .text-pink-700, .dark .text-pink-600 { color: rgb(244 114 182); }
+
+/* Resaltado temporal (al ir a "ver original") */
+@keyframes flashTarget {
+  0% { background-color: rgba(236, 72, 153, .28); box-shadow: 0 0 0 2px rgba(236, 72, 153, .5); }
+  100% { background-color: transparent; box-shadow: 0 0 0 2px transparent; }
+}
+.flash-target { animation: flashTarget 2.2s ease-out; }
+
+/* Zoom en el modal de imágenes */
+#img-modal-src {
+  cursor: zoom-in;
+  transition: transform .08s ease-out;
+  user-select: none;
+  -webkit-user-drag: none;
+  touch-action: none;
+  transform-origin: center center;
+  will-change: transform;
+}
+
+/* HTMX Global Loader */
+#global-loader { display: none; }
+#global-loader.htmx-request { display: flex; }
