@@ -302,7 +302,7 @@
 </span>
       <h1 class="font-semibold text-base md:text-lg truncate">{% block header %}Gestor Nequi{% endblock %}</h1>
       <div class="ml-auto flex items-center gap-2">
-        <button onclick="toggleTheme()" title="Tema" class="w-10 h-10 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 grid place-items-center text-slate-500 dark:text-slate-400">
+        <button type="button" x-data @click="localStorage.theme = document.documentElement.classList.toggle('dark') ? 'dark' : 'light'" title="Tema" class="w-10 h-10 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 grid place-items-center text-slate-500 dark:text-slate-400">
           <!-- @license lucide-static v1.21.0 - ISC -->
 <svg class="w-5 h-5 dark:hidden"
   
@@ -676,10 +676,6 @@
       updateActive();
     }
   });
-  function toggleTheme() {
-    const dark = document.documentElement.classList.toggle('dark');
-    localStorage.theme = dark ? 'dark' : 'light';
-  }
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
