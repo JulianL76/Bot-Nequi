@@ -389,6 +389,7 @@
 </div>
 
 <!-- Barra inferior tipo app (solo móvil) -->
+<div x-data="{ mas: false }">
 <nav class="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white dark:bg-slate-800 border-t border-slate-200 grid grid-cols-5 h-16 pb-[env(safe-area-inset-bottom)]">
   <a href="{% url 'dashboard:home' %}" class="tab {% if vn == 'dashboard:home' %}active{% endif %}">
     <div class="icon-wrapper">
@@ -477,7 +478,7 @@
     <span>Pend.</span>
     {% if notif_no_leidas %}<span class="absolute top-1 right-2 bg-rose-500 text-white text-[10px] rounded-full px-1">{{ notif_no_leidas }}</span>{% endif %}
   </a>
-  <button onclick="toggleMas()" class="tab">
+  <button type="button" @click="mas = !mas" class="tab">
     <div class="icon-wrapper"><!-- @license lucide-static v1.21.0 - ISC -->
 <svg class="w-5 h-5" style="view-transition-name: icon-mas;"
   
@@ -501,9 +502,9 @@
 </nav>
 
 <!-- Hoja "Más" (solo móvil) -->
-<div id="mas" class="lg:hidden fixed inset-0 z-40 pointer-events-none">
-  <div id="mas-backdrop" onclick="toggleMas()" class="absolute inset-0 bg-black/50 opacity-0 transition-opacity duration-300"></div>
-  <div id="mas-sheet" class="absolute bottom-0 inset-x-0 bg-white dark:bg-slate-800 rounded-t-3xl p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] space-y-1 translate-y-full transition-transform duration-300 ease-out">
+<div class="lg:hidden fixed inset-0 z-40" :class="mas ? 'pointer-events-auto' : 'pointer-events-none'">
+  <div @click="mas = false" class="absolute inset-0 bg-black/50 transition-opacity duration-300" :class="mas ? 'opacity-100' : 'opacity-0'"></div>
+  <div class="absolute bottom-0 inset-x-0 bg-white dark:bg-slate-800 rounded-t-3xl p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] space-y-1 transition-transform duration-300 ease-out" :class="mas ? 'translate-y-0' : 'translate-y-full'">
     <div class="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-3"></div>
     <a href="{% url 'conciliaciones:conciliar' %}" class="sheet-link"><!-- @license lucide-static v1.21.0 - ISC -->
 <svg class="w-5 h-5"
@@ -651,6 +652,7 @@
     </form>
   </div>
 </div>
+</div>
 {% endwith %}{% endif %}
 
 <script>
@@ -677,20 +679,6 @@
   function toggleTheme() {
     const dark = document.documentElement.classList.toggle('dark');
     localStorage.theme = dark ? 'dark' : 'light';
-  }
-  function toggleMas() {
-    const mas = document.getElementById('mas');
-    const backdrop = document.getElementById('mas-backdrop');
-    const sheet = document.getElementById('mas-sheet');
-    if (mas.classList.contains('pointer-events-none')) {
-      mas.classList.remove('pointer-events-none');
-      backdrop.classList.remove('opacity-0');
-      sheet.classList.remove('translate-y-full');
-    } else {
-      backdrop.classList.add('opacity-0');
-      sheet.classList.add('translate-y-full');
-      setTimeout(() => { mas.classList.add('pointer-events-none'); }, 300);
-    }
   }
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
