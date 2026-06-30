@@ -27,21 +27,19 @@
       <div class="px-3 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-200 pointer-events-none min-w-16 text-center">{% if hora %}{{ hora }}{% else %}Hora{% endif %}</div>
       <input type="time" name="hora" value="{{ hora }}" title="Filtrar por hora exacta" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer">
     </div>
-    <button class="bg-slate-700 text-white px-4 py-2.5 rounded-xl">Buscar</button>
-    {% if q or dia or hora %}<a href="{% url 'comprobantes:lista' %}{% if dup %}?dup={{ dup }}{% endif %}" class="px-2 py-2.5 text-slate-500">Limpiar</a>{% endif %}
+    <button class="btn btn-neutral">Buscar</button>
+    {% if q or dia or hora %}<a href="{% url 'comprobantes:lista' %}{% if dup %}?dup={{ dup }}{% endif %}" class="btn btn-ghost btn-sm">Limpiar</a>{% endif %}
   </form>
 </div>
 
 <!-- Utilidades: exportar (con modal de rango/ruta) / importar -->
 <div x-data="{ openExport: false }">
 <div class="flex flex-wrap items-center gap-2 mb-3">
-  <button type="button" @click="openExport = true"
-     class="inline-flex items-center gap-1.5 text-sm px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700">
+  <button type="button" @click="openExport = true" class="btn btn-sm btn-outline">
     <svg class="w-4 h-4 text-emerald-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><path d="M14 2v6h6"/><path d="M8 13h2"/><path d="M8 17h2"/><path d="M14 13h2"/><path d="M14 17h2"/></svg>
     Exportar Excel
   </button>
-  <a href="{% url 'comprobantes:importar' %}"
-     class="inline-flex items-center gap-1.5 text-sm px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700">
+  <a href="{% url 'comprobantes:importar' %}" class="btn btn-sm btn-outline">
     <svg class="w-4 h-4 text-violet-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
     Importar Excel
   </a>
@@ -50,7 +48,7 @@
 <!-- Modal: opciones de exportación -->
 <div x-show="openExport" x-cloak @click="openExport = false" @keydown.escape.window="openExport = false"
      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-  <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-md p-5" @click.stop>
+  <div class="modal-box w-full max-w-md" @click.stop>
     <div class="flex items-center justify-between mb-4">
       <h3 class="text-lg font-bold">Exportar a Excel</h3>
       <button type="button" @click="openExport = false" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
@@ -90,8 +88,8 @@
       </div>
       <p class="text-xs text-slate-500">Deja las fechas vacías para exportar todo. Se respetan también la búsqueda y el filtro actuales.</p>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" @click="openExport = false" class="px-4 py-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700">Cancelar</button>
-        <button class="inline-flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700">
+        <button type="button" @click="openExport = false" class="btn btn-ghost">Cancelar</button>
+        <button class="btn btn-success">
           <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
           Descargar
         </button>
@@ -254,14 +252,14 @@
   <div id="action-bar" class="hidden fixed bottom-16 lg:bottom-0 inset-x-0 z-30 bg-white dark:bg-slate-800 border-t border-slate-200 p-3 flex-wrap gap-2 items-center shadow-2xl">
     <span class="text-sm font-medium"><span id="sel-count2">0</span> seleccionado(s)</span>
     <div class="flex flex-wrap gap-2 ml-auto">
-      <button name="accion" value="confirmar" class="inline-flex items-center gap-1.5 bg-emerald-600 text-white px-3 py-2 rounded-xl text-sm"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Confirmar</button>
-      <select name="ruta" class="px-2 py-2 border rounded-xl text-sm">
+      <button name="accion" value="confirmar" class="btn btn-sm btn-success"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Confirmar</button>
+      <select name="ruta" class="select select-bordered select-sm">
         <option value="">Ruta…</option>
         {% for r in rutas %}<option value="{{ r.id }}">Ruta {{ r.numero }}</option>{% endfor %}
       </select>
-      <button name="accion" value="asignar_ruta" class="bg-violet-600 text-white px-3 py-2 rounded-xl text-sm">Asignar</button>
-      <button name="accion" value="exportar" class="inline-flex items-center gap-1.5 bg-slate-700 text-white px-3 py-2 rounded-xl text-sm"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><path d="M14 2v6h6"/><path d="M8 13h2"/><path d="M8 17h2"/><path d="M14 13h2"/><path d="M14 17h2"/></svg> Exportar Excel</button>
-      <button name="accion" value="eliminar" class="inline-flex items-center gap-1.5 bg-rose-600 text-white px-3 py-2 rounded-xl text-sm"
+      <button name="accion" value="asignar_ruta" class="btn btn-sm btn-primary">Asignar</button>
+      <button name="accion" value="exportar" class="btn btn-sm btn-neutral"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><path d="M14 2v6h6"/><path d="M8 13h2"/><path d="M8 17h2"/><path d="M14 13h2"/><path d="M14 17h2"/></svg> Excel</button>
+      <button name="accion" value="eliminar" class="btn btn-sm btn-error"
               onclick="return confirm('¿Eliminar los seleccionados?')" title="Eliminar seleccionados"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg></button>
     </div>
   </div>

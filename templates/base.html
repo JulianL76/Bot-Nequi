@@ -15,10 +15,12 @@
   <link rel="icon" href="{% static 'icons/icon-192.png' %}">
   <!-- Tema guardado antes de pintar (evita parpadeo) -->
   <script>
-    if (localStorage.theme === 'dark' ||
-        (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-      document.documentElement.classList.add('dark');
-    }
+    (function () {
+      var dark = localStorage.theme === 'dark' ||
+        (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.classList.toggle('dark', dark);
+      document.documentElement.dataset.theme = dark ? 'nequidark' : 'nequi';
+    })();
   </script>
   <!-- Fuente del design system -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -302,7 +304,7 @@
 </span>
       <h1 class="font-semibold text-base md:text-lg truncate">{% block header %}Gestor Nequi{% endblock %}</h1>
       <div class="ml-auto flex items-center gap-2">
-        <button type="button" x-data @click="localStorage.theme = document.documentElement.classList.toggle('dark') ? 'dark' : 'light'" title="Tema" class="w-10 h-10 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 grid place-items-center text-slate-500 dark:text-slate-400">
+        <button type="button" x-data @click="const d = document.documentElement.classList.toggle('dark'); localStorage.theme = d ? 'dark' : 'light'; document.documentElement.dataset.theme = d ? 'nequidark' : 'nequi'" title="Tema" class="w-10 h-10 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 grid place-items-center text-slate-500 dark:text-slate-400">
           <!-- @license lucide-static v1.21.0 - ISC -->
 <svg class="w-5 h-5 dark:hidden"
   
