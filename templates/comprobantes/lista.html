@@ -272,25 +272,10 @@
 </div>
 {% endif %}
 
-<!-- Modal de imagen -->
-<div id="img-modal" class="fixed inset-0 bg-black/80 hidden items-center justify-center z-50 p-4" onclick="cerrarImg()">
-  <img id="img-modal-src" src="" class="max-h-[90vh] max-w-full rounded-xl" onclick="event.stopPropagation()">
-  <button onclick="cerrarImg()" class="absolute top-4 right-5 text-white text-4xl">&times;</button>
-  <div class="absolute bottom-4 inset-x-0 text-center text-white/60 text-xs pointer-events-none">Rueda o clic para zoom · arrastra para mover</div>
-</div>
-
 <script>
   // IIFE: evita colisiones de variables globales al re-ejecutarse con hx-boost.
+  // (El modal de imagen es global con Alpine en base.html; aquí solo selección/export.)
   (function () {
-    const modal = document.getElementById('img-modal');
-    // Expuesta global porque el HTML del modal usa onclick="cerrarImg()".
-    window.cerrarImg = function () { modal.classList.add('hidden'); modal.classList.remove('flex'); };
-    document.querySelectorAll('.ver-img').forEach(b => b.addEventListener('click', () => {
-      document.getElementById('img-modal-src').src = b.dataset.src;
-      modal.classList.remove('hidden'); modal.classList.add('flex');
-    }));
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') window.cerrarImg(); });
-
     // Selección: solo cuentan las casillas visibles (la otra maqueta está oculta).
     const bar = document.getElementById('action-bar');
     function refrescarSel() {

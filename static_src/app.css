@@ -113,3 +113,6 @@
 /* HTMX Global Loader */
 #global-loader { display: none; }
 #global-loader.htmx-request { display: flex; }
+
+/* Alpine: oculta elementos con x-cloak hasta que Alpine inicializa */
+[x-cloak] { display: none !important; }
