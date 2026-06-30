@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Crear cuenta{% endblock %}
+{% block content %}
+<div class="max-w-md mx-auto bg-white dark:bg-slate-800 p-6 rounded-xl shadow mt-10">
+  <h1 class="text-xl font-bold mb-4">Crear cuenta</h1>
+  <form method="post">{% csrf_token %}
+    {% for field in form %}
+      <div class="mb-3">
+        <label class="block text-sm mb-1">{{ field.label }}</label>
+        {{ field }}
+        {% if field.help_text %}<p class="text-xs text-slate-500 mt-1">{{ field.help_text }}</p>{% endif %}
+        {% for e in field.errors %}<p class="text-xs text-rose-600">{{ e }}</p>{% endfor %}
+      </div>
+    {% endfor %}
+    <button class="mt-2 w-full bg-violet-600 text-white py-2 rounded hover:bg-violet-700">Registrarme</button>
+  </form>
+  <p class="text-sm mt-4 text-center">¿Ya tienes cuenta?
+    <a href="{% url 'login' %}" class="text-violet-600">Inicia sesión</a></p>
+</div>
+<style>
+  input { width: 100%; padding: .5rem; border: 1px solid #cbd5e1; border-radius: .375rem; background: white; color: black; }
+  .dark input { background: #1e293b; border-color: #334155; color: white; }
+</style>
+{% endblock %}

@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% load formato %}
+{% block title %}Pendientes{% endblock %}
+{% block header %}Pendientes{% endblock %}
+{% block content %}
+
+<!-- Comprobantes sin confirmar -->
+<section class="mb-8">
+  <h2 class="font-semibold mb-2 flex items-center gap-2"><svg class="w-5 h-5 text-violet-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/></svg> Sin confirmar ({{ comprobantes|length }})</h2>
+  <form method="post" action="{% url 'comprobantes:acciones_lote' %}">
+    {% csrf_token %}
+    {% if comprobantes %}
+    <label class="flex items-center gap-1.5 text-sm mb-2"><input type="checkbox" id="check-all" class="w-4 h-4"> Seleccionar todos</label>
+    {% endif %}
+    <div class="space-y-3">
+    {% for c in comprobantes %}
+      <div class="bg-white rounded-2xl shadow-sm p-4 flex items-start gap-3">
+        <input type="checkbox" class="row-check w-5 h-5 mt-1" name="seleccion" value="{{ c.pk }}">
+        <div class="flex-1 min-w-0">
+          <div class="font-semibold truncate">{{ c.de }}</div>
+          <div class="text-xl font-bold">{{ c.valor|pesos }}</div>
+          <div class="text-sm text-slate-500 flex items-center gap-1.5 flex-wrap">
+            <span class="inline-flex items-center gap-1"><svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/></svg>{{ c.ref }}</span>
+            <span>·</span>
+            <span class="inline-flex items-center gap-1"><svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>{{ c.fecha }}</span>
+          </div>
+        </div>
+        <a href="{% url 'comprobantes:editar' c.pk %}" class="text-violet-600 text-sm">Revisar</a>
+      </div>
+    {% empty %}
+      <div class="bg-white rounded-2xl shadow-sm p-8 text-center text-slate-400 flex flex-col items-center gap-2"><svg class="w-8 h-8 text-emerald-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.801 10A10 10 0 1 1 17 3.335"/><path d="m9 11 3 3L22 4"/></svg> Nada sin confirmar.</div>
+    {% endfor %}
+    </div>
+    {% if comprobantes %}
+    <button name="accion" value="confirmar" class="mt-3 w-full md:w-auto bg-emerald-600 text-white px-5 py-3 rounded-xl inline-flex items-center justify-center gap-2"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Confirmar seleccionados</button>
+    {% endif %}
+  </form>
+</section>
+
+<!-- Conciliaciones pendientes -->
+<section>
+  <h2 class="font-semibold mb-2 flex items-center gap-2"><svg class="w-5 h-5 text-violet-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> Conciliaciones pendientes ({{ conciliaciones|length }})</h2>
+  <div class="space-y-3">
+  {% for it in conciliaciones %}
+    <div class="bg-white rounded-2xl shadow-sm p-4 flex items-center gap-3">
+      <div class="flex-1 min-w-0">
+        <div class="font-semibold">{{ it.ref }}</div>
+        <div class="text-sm text-slate-500">Leído {{ it.valor|pesos }}{% if it.comprobante %} · comp. {{ it.comprobante.valor|pesos }}{% endif %}</div>
+      </div>
+      {% if it.comprobante %}
+      <form method="post" action="{% url 'conciliaciones:confirmar_pendiente' it.pk %}">{% csrf_token %}
+        <button class="text-violet-600 text-sm whitespace-nowrap">Confirmar igual</button>
+      </form>
+      {% endif %}
+    </div>
+  {% empty %}
+    <div class="bg-white rounded-2xl shadow-sm p-8 text-center text-slate-400 flex flex-col items-center gap-2"><svg class="w-8 h-8 text-emerald-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.801 10A10 10 0 1 1 17 3.335"/><path d="m9 11 3 3L22 4"/></svg> Sin conciliaciones pendientes.</div>
+  {% endfor %}
+  </div>
+</section>
+
+<script>
+  (function () {
+    const checkAll = document.getElementById('check-all');
+    const checks = document.querySelectorAll('.row-check');
+    if (checkAll) checkAll.addEventListener('change', () => checks.forEach(c => c.checked = checkAll.checked));
+  })();
+</script>
+{% endblock %}

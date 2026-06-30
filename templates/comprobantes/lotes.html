@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Subidas{% endblock %}
+{% block header %}Subidas{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-3">
+  <h1 class="text-xl font-bold hidden lg:block">Historial de subidas</h1>
+  <a href="{% url 'comprobantes:en_proceso' %}" class="text-violet-600 text-sm py-2.5 hidden lg:block">En proceso →</a>
+  <a href="{% url 'comprobantes:subir' %}" class="flex items-center gap-1.5 bg-violet-600 text-white px-4 py-2.5 rounded-xl ml-auto">
+    <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
+    Subir
+  </a>
+</div>
+
+<div class="space-y-3 overflow-y-auto pr-1 max-h-[calc(100vh-13rem)] lg:max-h-[calc(100vh-11rem)]">
+{% for l in page %}
+  <div class="bg-white rounded-2xl shadow-sm p-4">
+    <div class="flex items-center justify-between">
+      <span class="font-semibold">Lote #{{ l.id }}</span>
+      <span class="text-xs px-2 py-0.5 rounded-full
+        {% if l.estado == 'completado' %}bg-emerald-100 text-emerald-700
+        {% elif l.estado == 'con_errores' %}bg-rose-100 text-rose-700
+        {% elif l.estado == 'pausado' %}bg-amber-100 text-amber-700
+        {% elif l.estado == 'procesando' or l.estado == 'en_cola' %}bg-violet-100 text-violet-700
+        {% else %}bg-slate-200{% endif %}">{{ l.get_estado_display }}</span>
+    </div>
+    <div class="text-sm text-slate-500 mt-1">{{ l.creado_en|date:"d/m/Y H:i" }} · {{ l.total }} imágenes</div>
+    <div class="flex gap-2 mt-2">
+      <span class="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-emerald-100 text-emerald-700 nums"><svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>{{ l.exitosas }}</span>
+      <span class="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-amber-100 text-amber-700 nums"><svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>{{ l.duplicadas }} dup</span>
+      <span class="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-rose-100 text-rose-700 nums"><svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>{{ l.fallidas }}</span>
+    </div>
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3 text-sm">
+      <a href="{% url 'comprobantes:lote_detalle' l.id %}" class="flex items-center gap-1.5 text-violet-600 hover:text-violet-700">
+        <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+        Detalle
+      </a>
+      {% if l.exitosas or l.duplicadas %}
+      <a href="{% url 'comprobantes:lista' %}?lote={{ l.id }}" class="flex items-center gap-1.5 text-violet-600 hover:text-violet-700">
+        <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V7"/><path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8"/></svg>
+        Comprobantes
+      </a>
+      {% endif %}
+      {% if l.fallidas and l.estado != 'procesando' and l.estado != 'en_cola' %}
+      <form method="post" action="{% url 'comprobantes:reprocesar' l.id %}">{% csrf_token %}
+        <button class="flex items-center gap-1.5 text-amber-600 hover:text-amber-700">
+          <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
+          Reintentar {{ l.fallidas }}
+        </button>
+      </form>
+      {% endif %}
+      <form method="post" action="{% url 'comprobantes:eliminar_lote' l.id %}" class="ml-auto"
+            onsubmit="return confirm('¿Eliminar la subida #{{ l.id }} y todos sus comprobantes? Esta acción no se puede deshacer.')">{% csrf_token %}
+        <button class="flex items-center gap-1.5 text-rose-600 hover:text-rose-700">
+          <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+          Borrar
+        </button>
+      </form>
+    </div>
+  </div>
+{% empty %}
+  <div class="bg-white rounded-2xl shadow-sm p-10 text-center">
+    <div class="text-slate-500 font-medium">Aún no has subido ningún lote.</div>
+    <a href="{% url 'comprobantes:subir' %}" class="inline-block mt-2 text-violet-600 font-medium hover:text-violet-700">Sube tu primer lote de comprobantes →</a>
+  </div>
+{% endfor %}
+</div>
+
+{% if page.has_other_pages %}
+<div class="mt-4 flex gap-2 items-center justify-center">
+  {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}" class="px-4 py-2 bg-white rounded-xl shadow inline-flex items-center" aria-label="Anterior"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></a>{% endif %}
+  <span class="text-sm nums">{{ page.number }} / {{ page.paginator.num_pages }}</span>
+  {% if page.has_next %}<a href="?page={{ page.next_page_number }}" class="px-4 py-2 bg-white rounded-xl shadow inline-flex items-center" aria-label="Siguiente"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

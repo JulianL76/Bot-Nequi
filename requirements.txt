@@ -4,9 +4,20 @@ python-dotenv
 Pillow
 pandas
 openpyxl
+groq
 
 # Para versión Gemini (Recomendada)
 google-genai
+
+# Plataforma web (Django + cola de tareas + admin)
+Django>=5.2
+django-unfold
+# redis-py se fija a 6.2 (RESP2) por compatibilidad con el Redis 3.x de Windows;
+# redis-py >=7 usa RESP3 (comando HELLO) que ese servidor antiguo no soporta.
+celery==5.5.2
+kombu==5.5.3
+redis==6.2.0
+django-celery-beat
 
 # Para versión OCR (Original)
 easyocr

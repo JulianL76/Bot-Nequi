@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Editar comprobante{% endblock %}
+{% block header %}Editar{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4">Editar comprobante #{{ comp.pk }}</h1>
+<div class="bg-white p-6 rounded-xl shadow max-w-3xl grid md:grid-cols-2 gap-6">
+  <div>
+    {% if comp.imagen %}<img src="{{ comp.imagen.url }}" class="rounded-lg border max-h-96">{% else %}<p class="text-slate-400">Sin imagen</p>{% endif %}
+  </div>
+  <form method="post" class="space-y-3">{% csrf_token %}
+    <div><label class="block text-sm">Remitente</label><input name="de" value="{{ comp.de }}" class="w-full p-2 border rounded"></div>
+    <div><label class="block text-sm">Valor</label><input name="valor" value="{{ comp.valor }}" class="w-full p-2 border rounded"></div>
+    <div><label class="block text-sm">Referencia</label><input name="ref" value="{{ comp.ref }}" class="w-full p-2 border rounded"></div>
+    <div><label class="block text-sm">Fecha</label><input name="fecha" value="{{ comp.fecha }}" class="w-full p-2 border rounded"></div>
+    <div><label class="block text-sm">Hora</label><input name="hora" value="{{ comp.hora }}" class="w-full p-2 border rounded"></div>
+    <div class="flex gap-2 pt-2">
+      <button class="bg-violet-600 text-white px-5 py-2 rounded hover:bg-violet-700">Guardar</button>
+      <a href="{% url 'comprobantes:lista' %}" class="px-5 py-2 rounded bg-slate-200">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

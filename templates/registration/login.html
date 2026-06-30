@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Iniciar sesión{% endblock %}
+{% block content %}
+<div class="max-w-sm mx-auto bg-white dark:bg-slate-800 p-6 rounded-xl shadow mt-10">
+  <h1 class="text-xl font-bold mb-4">Iniciar sesión</h1>
+  <form method="post">{% csrf_token %}
+    {{ form.non_field_errors }}
+    <label class="block text-sm mb-1">Usuario</label>
+    {{ form.username }}
+    <label class="block text-sm mb-1 mt-3">Contraseña</label>
+    {{ form.password }}
+    <button class="mt-5 w-full bg-violet-600 text-white py-2 rounded hover:bg-violet-700">Entrar</button>
+  </form>
+  <p class="text-sm mt-4 text-center">¿No tienes cuenta?
+    <a href="{% url 'registro' %}" class="text-violet-600">Regístrate</a></p>
+</div>
+<style>
+  input { width: 100%; padding: .5rem; border: 1px solid #cbd5e1; border-radius: .375rem; background: white; color: black; }
+  .dark input { background: #1e293b; border-color: #334155; color: white; }
+</style>
+{% endblock %}

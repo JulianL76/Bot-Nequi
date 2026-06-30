@@ -1,0 +1,12 @@
+{# Cabecera de columna ordenable. Params: campo, etiqueta, align(opcional "end"), qp, sort #}
+<a href="?{{ qp }}&sort={% if sort == campo %}-{{ campo }}{% else %}{{ campo }}{% endif %}"
+   class="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-200 {% if align == 'end' %}justify-end w-full{% endif %}">
+  {{ etiqueta }}
+  {% if sort == campo %}
+    <svg class="w-3 h-3 text-primary-600 dark:text-primary-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+  {% elif sort == "-"|add:campo %}
+    <svg class="w-3 h-3 text-primary-600 dark:text-primary-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+  {% else %}
+    <svg class="w-3 h-3 opacity-30" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 9 4-4 4 4"/><path d="m16 15-4 4-4-4"/></svg>
+  {% endif %}
+</a>

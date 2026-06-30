@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Rutas{% endblock %}
+{% block header %}Rutas{% endblock %}
+{% block content %}
+<!-- Crear ruta -->
+<div class="bg-white p-4 rounded-2xl shadow-sm mb-4">
+  <h2 class="font-semibold mb-3">Nueva ruta</h2>
+  <form method="post" class="flex flex-wrap gap-2 items-end">{% csrf_token %}
+    <div class="flex-1 min-w-[120px]">
+      <label class="block text-xs text-slate-500 mb-1">Número *</label>
+      <input type="number" name="numero" required class="w-full p-2.5 border rounded-xl">
+    </div>
+    <div class="flex-1 min-w-[140px]">
+      <label class="block text-xs text-slate-500 mb-1">Nombre (opcional)</label>
+      <input type="text" name="nombre" class="w-full p-2.5 border rounded-xl">
+    </div>
+    <button class="bg-violet-600 text-white px-5 py-2.5 rounded-xl">Crear</button>
+  </form>
+</div>
+
+<!-- Listado -->
+<div class="space-y-3">
+{% for r in rutas %}
+  <div class="bg-white rounded-2xl shadow-sm p-4 flex items-center gap-3">
+    <div class="flex-1">
+      <div class="font-semibold">Ruta {{ r.numero }} {% if r.nombre %}<span class="text-slate-500 font-normal">— {{ r.nombre }}</span>{% endif %}</div>
+      <div class="text-sm text-slate-500 mt-0.5">{{ r.n_comprobantes }} comprobante(s)</div>
+    </div>
+    {% if r.activa %}
+      <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Activa</span>
+    {% else %}
+      <span class="text-xs px-2 py-0.5 rounded-full bg-slate-200">Inactiva</span>
+    {% endif %}
+    <form method="post" action="{% url 'comprobantes:ruta_toggle' r.pk %}">{% csrf_token %}
+      <button class="text-violet-600 text-sm">{% if r.activa %}Desactivar{% else %}Activar{% endif %}</button>
+    </form>
+  </div>
+{% empty %}
+  <div class="bg-white rounded-2xl shadow-sm p-10 text-center text-slate-400">No hay rutas. Crea la primera.</div>
+{% endfor %}
+</div>
+{% endblock %}

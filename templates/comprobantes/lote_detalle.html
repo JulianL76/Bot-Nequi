@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% block title %}Lote #{{ lote.id }}{% endblock %}
+{% block header %}Lote #{{ lote.id }}{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4">Lote #{{ lote.id }}</h1>
+
+<div class="grid lg:grid-cols-3 gap-4 items-start">
+  <!-- ============ Columna principal ============ -->
+  <div class="lg:col-span-2 space-y-4">
+    <div class="bg-white p-6 rounded-xl shadow">
+      <div class="w-full bg-slate-200 rounded-full h-5 overflow-hidden">
+        <div id="bar" class="bg-violet-600 h-5 text-xs text-white text-center" style="width: {{ lote.progreso_pct }}%">{{ lote.progreso_pct }}%</div>
+      </div>
+      <div id="stats" class="mt-4 grid grid-cols-4 gap-3 text-center">
+        <div><div class="text-2xl font-bold nums" id="procesadas">{{ lote.procesadas }}</div><div class="text-xs text-slate-500">Procesadas / <span class="nums">{{ lote.total }}</span></div></div>
+        <div><div class="text-2xl font-bold text-emerald-600 nums" id="exitosas">{{ lote.exitosas }}</div><div class="text-xs text-slate-500">Exitosas</div></div>
+        <div><div class="text-2xl font-bold text-amber-600 nums" id="duplicadas">{{ lote.duplicadas }}</div><div class="text-xs text-slate-500">Duplicadas</div></div>
+        <div><div class="text-2xl font-bold text-rose-600 nums" id="fallidas">{{ lote.fallidas }}</div><div class="text-xs text-slate-500">Fallidas</div></div>
+      </div>
+      <div id="estado" class="mt-4 text-center font-medium text-slate-600">Estado: {{ lote.get_estado_display }}</div>
+
+      <div class="mt-4 flex flex-wrap gap-2 justify-center">
+        {% if lote.estado == 'procesando' or lote.estado == 'en_cola' %}
+        <form method="post" action="{% url 'comprobantes:pausar_lote' lote.id %}">{% csrf_token %}
+          <button class="flex items-center gap-1.5 bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600">
+            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></svg>
+            Pausar
+          </button>
+        </form>
+        {% elif lote.estado == 'pausado' %}
+        <form method="post" action="{% url 'comprobantes:reanudar_lote' lote.id %}">{% csrf_token %}
+          <button class="flex items-center gap-1.5 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700">
+            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+            Reanudar
+          </button>
+        </form>
+        {% endif %}
+
+        {% if lote.fallidas and lote.estado != 'procesando' and lote.estado != 'en_cola' %}
+        <form method="post" action="{% url 'comprobantes:reprocesar' lote.id %}">{% csrf_token %}
+          <button class="flex items-center gap-1.5 bg-violet-600 text-white px-4 py-2 rounded-lg hover:bg-violet-700">
+            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
+            Reintentar {{ lote.fallidas }} fallida(s)
+          </button>
+        </form>
+        {% endif %}
+
+        <form method="post" action="{% url 'comprobantes:eliminar_lote' lote.id %}"
+              onsubmit="return confirm('¿Eliminar la subida #{{ lote.id }} y todos sus comprobantes? Esta acción no se puede deshacer.')">{% csrf_token %}
+          <button class="flex items-center gap-1.5 bg-rose-600 text-white px-4 py-2 rounded-lg hover:bg-rose-700">
+            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+            Borrar subida
+          </button>
+        </form>
+      </div>
+
+      <a href="{% url 'comprobantes:lista' %}?lote={{ lote.id }}" class="block mt-4 text-center text-violet-600">Ver comprobantes de esta subida →</a>
+    </div>
+
+    <!-- ===================== Errores ===================== -->
+    {% if fallidos %}
+    <div class="bg-white p-6 rounded-xl shadow">
+      <h2 class="font-bold text-lg mb-3 flex items-center gap-2 text-rose-600">
+        <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
+        Errores ({{ fallidos|length }})
+      </h2>
+      <div class="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+        {% for arch in fallidos %}
+        <div class="flex items-center gap-3 p-2 rounded-lg border border-rose-100 dark:border-rose-500/20 bg-rose-50/50 dark:bg-rose-900/10">
+          {% if arch.imagen %}
+          <button type="button" class="shrink-0 ver-img" data-src="{{ arch.imagen.url }}">
+            <img src="{{ arch.imagen.url }}" class="w-12 h-12 object-cover rounded-md border border-slate-200">
+          </button>
+          {% endif %}
+          <div class="min-w-0 flex-1">
+            <div class="text-sm font-medium truncate">{{ arch.imagen.name|default:"(sin nombre)" }}</div>
+            <div class="text-xs text-rose-600 dark:text-rose-400">{{ arch.error|default:"Error desconocido." }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ============ Panel lateral: actividad en vivo ============ -->
+  <aside class="bg-white p-4 rounded-xl shadow lg:sticky lg:top-20">
+    <div class="flex items-center gap-2 mb-1">
+      <span id="run-dot" class="w-2.5 h-2.5 rounded-full bg-slate-300 shrink-0"></span>
+      <h2 class="font-bold">Actividad en vivo</h2>
+    </div>
+    <div id="run-status" class="text-sm text-slate-500 mb-3">Cargando…</div>
+    <ul id="feed" class="space-y-1.5 text-sm max-h-[60vh] overflow-y-auto pr-1"></ul>
+  </aside>
+</div>
+
+<!-- Modal de imagen -->
+<div id="img-modal" class="fixed inset-0 bg-black/80 hidden items-center justify-center z-50 p-4" onclick="cerrarImg()">
+  <img id="img-modal-src" src="" class="max-h-[90vh] max-w-full rounded-xl" onclick="event.stopPropagation()">
+  <button onclick="cerrarImg()" class="absolute top-4 right-5 text-white text-4xl">&times;</button>
+  <div class="absolute bottom-4 inset-x-0 text-center text-white/60 text-xs pointer-events-none">Rueda o clic para zoom · arrastra para mover</div>
+</div>
+
+<script>
+  (function () {
+    const modal = document.getElementById('img-modal');
+    window.cerrarImg = function () { modal.classList.add('hidden'); modal.classList.remove('flex'); };
+    document.querySelectorAll('.ver-img').forEach(b => b.addEventListener('click', () => {
+      document.getElementById('img-modal-src').src = b.dataset.src;
+      modal.classList.remove('hidden'); modal.classList.add('flex');
+    }));
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') window.cerrarImg(); });
+
+    const url = "{% url 'comprobantes:lote_progreso' lote.id %}";
+    const elDot = document.getElementById('run-dot');
+    const elStatus = document.getElementById('run-status');
+    const elFeed = document.getElementById('feed');
+    let ultProcesadas = -1, ultCambio = Date.now();
+
+    function pesos(v) { return '$' + Number(v).toLocaleString('es-CO', { maximumFractionDigits: 0 }); }
+
+    const checkSvg = '<svg class="w-4 h-4 text-emerald-600 shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+    const dupSvg = '<svg class="w-4 h-4 text-amber-600 shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
+
+    function render(d) {
+      document.getElementById('bar').style.width = d.progreso + '%';
+      document.getElementById('bar').textContent = d.progreso + '%';
+      document.getElementById('procesadas').textContent = d.procesadas;
+      document.getElementById('exitosas').textContent = d.exitosas;
+      document.getElementById('duplicadas').textContent = d.duplicadas;
+      document.getElementById('fallidas').textContent = d.fallidas;
+      document.getElementById('estado').textContent = 'Estado: ' + d.estado_display;
+
+      // Detectar avance para saber si sigue ejecutándose o se estancó.
+      if (d.procesadas !== ultProcesadas) { ultProcesadas = d.procesadas; ultCambio = Date.now(); }
+      const seg = (Date.now() - ultCambio) / 1000;
+
+      if (d.terminado) {
+        elDot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0';
+        elStatus.textContent = d.estado_display;
+      } else if (d.pausado) {
+        elDot.className = 'w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0';
+        elStatus.textContent = '⏸ En pausa';
+      } else if (d.estado === 'en_cola') {
+        elDot.className = 'w-2.5 h-2.5 rounded-full bg-violet-400 shrink-0 animate-pulse';
+        elStatus.textContent = 'En cola, esperando al worker…';
+      } else if (seg > 20) {
+        // Procesando pero sin avanzar: probablemente esperando a la IA (límite/back-off).
+        elDot.className = 'w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0 animate-pulse';
+        elStatus.textContent = '⏳ Activo, esperando respuesta de la IA (' + Math.round(seg) + 's sin avanzar)…';
+      } else {
+        elDot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 animate-pulse';
+        elStatus.textContent = 'Procesando… (' + d.procesadas + '/' + d.total + ')';
+      }
+
+      // Feed de los últimos comprobantes procesados.
+      let html = '';
+      if (!d.terminado && !d.pausado && d.estado !== 'en_cola') {
+        html += '<li class="flex items-center gap-2 text-slate-400"><span class="w-4 h-4 border-2 border-slate-300 border-t-violet-600 rounded-full animate-spin shrink-0"></span> Analizando imagen…</li>';
+      }
+      (d.ultimos || []).forEach(c => {
+        html += '<li class="flex items-center gap-2 py-1 border-b border-slate-50 dark:border-slate-700/40">'
+          + (c.dup ? dupSvg : checkSvg)
+          + '<span class="truncate flex-1">' + (c.de || '—') + '</span>'
+          + '<span class="font-semibold whitespace-nowrap nums">' + pesos(c.valor) + '</span>'
+          + (c.dup ? '<span class="text-[10px] text-amber-600">dup</span>' : '')
+          + '</li>';
+      });
+      elFeed.innerHTML = html || '<li class="text-slate-400">Sin comprobantes todavía.</li>';
+    }
+
+    function tick() {
+      fetch(url).then(r => r.json()).then(d => {
+        render(d);
+        // Al pausar o terminar, recargamos para refrescar los botones (Reanudar, etc.).
+        if (d.pausado || d.terminado) { setTimeout(() => location.reload(), 1200); return; }
+        setTimeout(tick, 2000);
+      }).catch(() => setTimeout(tick, 3000));
+    }
+
+    {% if lote.estado == 'procesando' or lote.estado == 'en_cola' %}
+    tick();
+    {% else %}
+    fetch(url).then(r => r.json()).then(render);  // poblar el panel una vez
+    {% endif %}
+  })();
+</script>
+{% endblock %}

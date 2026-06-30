@@ -1,0 +1,334 @@
+{% extends "base.html" %}
+{% load formato %}
+{% block title %}Comprobantes{% endblock %}
+{% block header %}Comprobantes{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-3">
+  <h1 class="text-xl font-bold hidden lg:block">Comprobantes</h1>
+  <form method="get" class="flex flex-wrap gap-2 items-center w-full lg:w-auto">
+    {% if dup %}<input type="hidden" name="dup" value="{{ dup }}">{% endif %}
+    {% if lote %}<input type="hidden" name="lote" value="{{ lote }}">{% endif %}
+    {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+    <input type="text" name="q" value="{{ q }}" placeholder="Buscar remitente, ref o #id"
+           class="px-3 py-2.5 border rounded-xl flex-1 min-w-0">
+    <div class="relative flex items-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm hover:ring-2 hover:ring-primary-500 transition-all cursor-pointer overflow-hidden flex-1 lg:flex-none">
+      <div class="pl-3 py-2.5 pointer-events-none text-primary-500 bg-primary-50 dark:bg-primary-900/30 flex items-center justify-center border-r border-slate-200 dark:border-slate-700">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>
+      </div>
+      <div class="px-3 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-200 pointer-events-none min-w-[110px] text-center">
+        {% if dia_obj %}{{ dia_obj|date:"d M, Y" }}{% else %}Fecha{% endif %}
+      </div>
+      <input type="date" name="dia" value="{{ dia }}" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer">
+    </div>
+    <div class="relative flex items-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm hover:ring-2 hover:ring-primary-500 transition-all cursor-pointer overflow-hidden">
+      <div class="pl-3 py-2.5 pointer-events-none text-primary-500 bg-primary-50 dark:bg-primary-900/30 flex items-center justify-center border-r border-slate-200 dark:border-slate-700">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      </div>
+      <div class="px-3 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-200 pointer-events-none min-w-16 text-center">{% if hora %}{{ hora }}{% else %}Hora{% endif %}</div>
+      <input type="time" name="hora" value="{{ hora }}" title="Filtrar por hora exacta" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer">
+    </div>
+    <button class="bg-slate-700 text-white px-4 py-2.5 rounded-xl">Buscar</button>
+    {% if q or dia or hora %}<a href="{% url 'comprobantes:lista' %}{% if dup %}?dup={{ dup }}{% endif %}" class="px-2 py-2.5 text-slate-500">Limpiar</a>{% endif %}
+  </form>
+</div>
+
+<!-- Utilidades: exportar (con modal de rango/ruta) / importar -->
+<div class="flex flex-wrap items-center gap-2 mb-3">
+  <button type="button" id="btn-exportar"
+     class="inline-flex items-center gap-1.5 text-sm px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700">
+    <svg class="w-4 h-4 text-emerald-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><path d="M14 2v6h6"/><path d="M8 13h2"/><path d="M8 17h2"/><path d="M14 13h2"/><path d="M14 17h2"/></svg>
+    Exportar Excel
+  </button>
+  <a href="{% url 'comprobantes:importar' %}"
+     class="inline-flex items-center gap-1.5 text-sm px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700">
+    <svg class="w-4 h-4 text-violet-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
+    Importar Excel
+  </a>
+</div>
+
+<!-- Modal: opciones de exportación -->
+<div id="export-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
+  <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-md p-5" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-lg font-bold">Exportar a Excel</h3>
+      <button type="button" id="export-close" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+    </div>
+    <form method="get" action="{% url 'comprobantes:exportar_lista' %}" hx-boost="false" class="space-y-4">
+      {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+      {% if dup %}<input type="hidden" name="dup" value="{{ dup }}">{% endif %}
+      {% if lote %}<input type="hidden" name="lote" value="{{ lote }}">{% endif %}
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium mb-1">Desde</label>
+          <input type="date" name="desde" value="{{ dia }}" class="w-full px-3 py-2 border rounded-lg bg-white dark:bg-slate-700">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Hasta</label>
+          <input type="date" name="hasta" value="{{ dia }}" class="w-full px-3 py-2 border rounded-lg bg-white dark:bg-slate-700">
+        </div>
+      </div>
+      <div>
+        <div class="flex items-center justify-between mb-1">
+          <label class="block text-sm font-medium">Rutas</label>
+          <label class="text-xs text-violet-600 cursor-pointer"><input type="checkbox" id="ruta-todas" class="align-middle mr-1">Todas</label>
+        </div>
+        <div class="max-h-40 overflow-y-auto border rounded-lg p-2 space-y-1 bg-white dark:bg-slate-700">
+          {% for r in rutas %}
+          <label class="flex items-center gap-2 text-sm px-1 py-0.5 rounded hover:bg-slate-50 dark:hover:bg-slate-600 cursor-pointer">
+            <input type="checkbox" name="ruta" value="{{ r.id }}" class="ruta-chk w-4 h-4"> Ruta {{ r.numero }}{% if r.nombre %} — {{ r.nombre }}{% endif %}
+          </label>
+          {% empty %}
+          <div class="text-xs text-slate-400 px-1">No hay rutas activas.</div>
+          {% endfor %}
+          <label class="flex items-center gap-2 text-sm px-1 py-0.5 rounded hover:bg-slate-50 dark:hover:bg-slate-600 cursor-pointer border-t border-slate-100 dark:border-slate-600 pt-1 mt-1">
+            <input type="checkbox" name="ruta" value="sin" class="ruta-chk w-4 h-4"> Sin ruta asignada
+          </label>
+        </div>
+        <p class="text-xs text-slate-400 mt-1">Sin marcar ninguna = todas las rutas.</p>
+      </div>
+      <p class="text-xs text-slate-500">Deja las fechas vacías para exportar todo. Se respetan también la búsqueda y el filtro actuales.</p>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" id="export-cancel" class="px-4 py-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700">Cancelar</button>
+        <button class="inline-flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700">
+          <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+          Descargar
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Aviso de filtro por subida -->
+{% if lote_obj %}
+<div class="flex items-center gap-2 mb-3 px-3 py-2 rounded-xl bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 text-sm">
+  <svg class="w-4 h-4 shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><polyline points="3.29 7 12 12 20.71 7"/></svg>
+  Mostrando comprobantes de la <a href="{% url 'comprobantes:lote_detalle' lote_obj.id %}" class="font-semibold underline">subida #{{ lote_obj.id }}</a>
+  <a href="{% url 'comprobantes:lista' %}" class="ml-auto inline-flex items-center gap-1 text-violet-500 hover:underline">Ver todos <svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></a>
+</div>
+{% endif %}
+
+<!-- Filtro por duplicados -->
+<div class="flex items-center gap-2 mb-3 text-sm">
+  <a href="?q={{ q }}&dia={{ dia }}&hora={{ hora }}&lote={{ lote }}&sort={{ sort }}" class="px-3 py-1.5 rounded-full border {% if not dup %}bg-primary-600 text-white border-primary-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300{% endif %}">Todos</a>
+  <a href="?q={{ q }}&dia={{ dia }}&hora={{ hora }}&lote={{ lote }}&sort={{ sort }}&dup=0" class="px-3 py-1.5 rounded-full border {% if dup == '0' %}bg-primary-600 text-white border-primary-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300{% endif %}">Originales</a>
+  <a href="?q={{ q }}&dia={{ dia }}&hora={{ hora }}&lote={{ lote }}&sort={{ sort }}&dup=1" class="px-3 py-1.5 rounded-full border {% if dup == '1' %}bg-rose-600 text-white border-rose-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-rose-600 dark:text-rose-400{% endif %}">Duplicados{% if n_duplicados %} ({{ n_duplicados }}){% endif %}</a>
+</div>
+
+<!-- Resumen de lo filtrado -->
+<div class="flex flex-wrap items-center gap-x-4 gap-y-1 mb-3 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/50 text-sm">
+  <span class="text-slate-500">Mostrando <span class="font-semibold text-slate-700 dark:text-slate-200 nums">{{ total_count }}</span> comprobante{{ total_count|pluralize }}{% if q or dia or dup or lote %} (filtrado){% endif %}</span>
+  <span class="ml-auto text-slate-500">Total: <span class="font-bold text-base text-slate-900 dark:text-white nums">{{ total_valor|pesos }}</span></span>
+</div>
+
+<form method="post" action="{% url 'comprobantes:acciones_lote' %}" id="bulk-form" hx-boost="false">
+  {% csrf_token %}
+
+  <!-- ====================== TABLA (escritorio) ====================== -->
+  <div class="hidden lg:block bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700/50 overflow-hidden" data-layout="desk">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 dark:bg-slate-700/40 text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wide">
+        {% with qp="q="|add:q|add:"&dia="|add:dia|add:"&hora="|add:hora|add:"&dup="|add:dup|add:"&lote="|add:lote %}
+        <tr>
+          <th class="px-3 py-3 w-10 text-left"><input type="checkbox" class="check-all w-4 h-4" data-target="[data-layout='desk']"></th>
+          {% spaceless %}
+          <th class="px-3 py-3 text-left">{% include "comprobantes/_th_sort.html" with campo="de" etiqueta="Remitente" %}</th>
+          <th class="px-3 py-3 text-right">{% include "comprobantes/_th_sort.html" with campo="valor" etiqueta="Valor" align="end" %}</th>
+          <th class="px-3 py-3 text-left">{% include "comprobantes/_th_sort.html" with campo="ref" etiqueta="Referencia" %}</th>
+          <th class="px-3 py-3 text-left">{% include "comprobantes/_th_sort.html" with campo="fecha_dt" etiqueta="Fecha" %}</th>
+          <th class="px-3 py-3 text-left">{% include "comprobantes/_th_sort.html" with campo="origen" etiqueta="Origen" %}</th>
+          <th class="px-3 py-3 text-left">{% include "comprobantes/_th_sort.html" with campo="estado" etiqueta="Estado" %}</th>
+          {% endspaceless %}
+          <th class="px-3 py-3 text-right">Acciones</th>
+        </tr>
+        {% endwith %}
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+      {% for c in page %}
+        <tr class="{% if c.es_duplicado %}bg-rose-50/60 dark:bg-rose-900/10{% endif %} hover:bg-slate-50 dark:hover:bg-slate-700/30">
+          <td class="px-3 py-2.5"><input type="checkbox" class="row-check w-4 h-4" name="seleccion" value="{{ c.pk }}"></td>
+          <td class="px-3 py-2.5">
+            <div class="font-medium text-slate-900 dark:text-white">{{ c.de }}</div>
+            {% if c.es_duplicado %}<a href="{% url 'comprobantes:lista' %}?q={{ c.ref|urlencode }}" class="inline-flex items-center gap-1 mt-0.5 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-400 hover:bg-rose-200" title="Ver el original y los duplicados de esta referencia"><svg class="w-3 h-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>Duplicado · ver original</a>{% elif c.n_dups %}<a href="{% url 'comprobantes:lista' %}?q={{ c.ref|urlencode }}" class="inline-flex items-center gap-1 mt-0.5 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200" title="Este es el original; ver sus duplicados">Original · {{ c.n_dups }} duplicado{{ c.n_dups|pluralize }}</a>{% endif %}
+          </td>
+          <td class="px-3 py-2.5 text-right font-bold whitespace-nowrap nums">{{ c.valor|pesos }}</td>
+          <td class="px-3 py-2.5 text-slate-600 dark:text-slate-300">{{ c.ref|default:"—" }}</td>
+          <td class="px-3 py-2.5 text-slate-600 dark:text-slate-300 whitespace-nowrap">{{ c.fecha|default:"—" }}{% if c.hora %}<span class="text-slate-400"> · {{ c.hora }}</span>{% endif %}</td>
+          <td class="px-3 py-2.5"><span class="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-[10px] font-medium">{{ c.get_origen_display }}</span></td>
+          <td class="px-3 py-2.5">
+            {% if c.estado == 'confirmado' %}
+              <span class="text-[10px] font-medium uppercase px-2 py-0.5 rounded-full bg-emerald-100/80 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400">Confirmado</span>
+              {% if c.conciliacion %}<a href="{% url 'conciliaciones:lote_detalle' c.conciliacion.lote_id %}#conc-item-{{ c.conciliacion.id }}" class="block mt-0.5 text-[10px] text-violet-600 dark:text-violet-400 hover:underline">conc. #{{ c.conciliacion.lote_id }}{% if c.conciliacion.lote.ruta %} · Ruta {{ c.conciliacion.lote.ruta.numero }}{% endif %}</a>{% endif %}
+            {% else %}
+              <span class="text-[10px] font-medium uppercase px-2 py-0.5 rounded-full bg-amber-100/80 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400">Pendiente</span>
+            {% endif %}
+          </td>
+          <td class="px-3 py-2.5">
+            <div class="flex items-center justify-end gap-3">
+              {% if c.imagen %}<button type="button" class="text-slate-500 hover:text-primary-600 ver-img" data-src="{{ c.imagen.url }}" title="Ver">
+                <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>{% endif %}
+              <a href="{% url 'comprobantes:editar' c.pk %}" class="text-violet-600 dark:text-violet-400 hover:text-violet-700" title="Editar">
+                <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>
+              </a>
+              <button formaction="{% url 'comprobantes:eliminar' c.pk %}" class="text-rose-600 dark:text-rose-400 hover:text-rose-700" title="Eliminar" onclick="return confirm('¿Eliminar este comprobante?')">
+                <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+              </button>
+            </div>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="8" class="px-3 py-12 text-center">
+          {% if dup == '1' %}
+            <div class="text-slate-500 font-medium">No hay comprobantes duplicados.</div>
+            <div class="text-sm text-slate-400 mt-1">Cuando subas una imagen cuya referencia ya exista, aparecerá aquí.</div>
+          {% elif lote_obj %}
+            <div class="text-slate-500 font-medium">Esta subida no generó comprobantes.</div>
+          {% else %}
+            <div class="text-slate-500 font-medium">Aún no hay comprobantes.</div>
+            <a href="{% url 'comprobantes:subir' %}" class="inline-block mt-2 text-violet-600 font-medium hover:text-violet-700">Sube tus primeros comprobantes →</a>
+          {% endif %}
+        </td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ====================== TARJETAS (móvil) ====================== -->
+  <div class="lg:hidden" data-layout="mob">
+    <div class="flex items-center gap-2 mb-2 text-sm">
+      <label class="flex items-center gap-1.5"><input type="checkbox" class="check-all w-4 h-4" data-target="[data-layout='mob']"> Todos</label>
+    </div>
+    <div class="space-y-3 pb-2">
+    {% for c in page %}
+      <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border {% if c.es_duplicado %}border-rose-200 dark:border-rose-500/30{% else %}border-slate-100 dark:border-slate-700/50{% endif %} p-3">
+        <div class="flex items-center gap-3">
+          <input type="checkbox" class="row-check w-5 h-5 shrink-0 rounded border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700" name="seleccion" value="{{ c.pk }}">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between gap-2">
+              <span class="font-semibold text-base truncate">{{ c.de }}</span>
+              {% if c.estado == 'confirmado' %}
+                <span class="text-[10px] font-medium uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-100/80 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 shrink-0">Confirmado</span>
+              {% else %}
+                <span class="text-[10px] font-medium uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-100/80 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 shrink-0">Pendiente</span>
+              {% endif %}
+            </div>
+            <div class="text-xl font-bold mt-0.5 text-slate-900 dark:text-white nums">{{ c.valor|pesos }}</div>
+            {% if c.es_duplicado %}<a href="{% url 'comprobantes:lista' %}?q={{ c.ref|urlencode }}" class="inline-flex items-center gap-1 mt-1 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-400"><svg class="w-3 h-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg> Duplicado · ver original</a>{% elif c.n_dups %}<a href="{% url 'comprobantes:lista' %}?q={{ c.ref|urlencode }}" class="inline-flex items-center gap-1 mt-1 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400">Original · {{ c.n_dups }} duplicado{{ c.n_dups|pluralize }}</a>{% endif %}
+          </div>
+        </div>
+
+        <div class="mt-2 pl-8 space-y-2">
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+            <div class="flex items-center gap-1"><svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/></svg> {{ c.ref|default:"—" }}</div>
+            <div class="flex items-center gap-1"><svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg> {{ c.fecha|default:"—" }}{% if c.hora %} - {{ c.hora }}{% endif %}</div>
+            <span class="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-[10px] font-medium">{{ c.get_origen_display }}</span>
+            {% if c.conciliacion %}<a href="{% url 'conciliaciones:lote_detalle' c.conciliacion.lote_id %}#conc-item-{{ c.conciliacion.id }}" class="flex items-center gap-1 text-violet-600 dark:text-violet-400"><svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> conc. #{{ c.conciliacion.lote_id }}{% if c.conciliacion.lote.ruta %} · Ruta {{ c.conciliacion.lote.ruta.numero }}{% endif %}</a>{% endif %}
+          </div>
+
+          <div class="flex items-center gap-4 pt-2 border-t border-slate-100 dark:border-slate-700/50">
+            {% if c.imagen %}<button type="button" class="flex items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-primary-600 ver-img" data-src="{{ c.imagen.url }}"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg> Ver</button>{% endif %}
+            <a href="{% url 'comprobantes:editar' c.pk %}" class="flex items-center gap-1.5 text-sm font-medium text-violet-600 dark:text-violet-400 hover:text-violet-700"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg> Editar</a>
+            <button formaction="{% url 'comprobantes:eliminar' c.pk %}" class="flex items-center gap-1.5 text-sm font-medium text-rose-600 dark:text-rose-400 hover:text-rose-700 ml-auto" onclick="return confirm('¿Eliminar este comprobante?')"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg> Eliminar</button>
+          </div>
+        </div>
+      </div>
+    {% empty %}
+      <div class="bg-white rounded-2xl shadow-sm p-10 text-center">
+        {% if dup == '1' %}
+          <div class="text-slate-500 font-medium">No hay comprobantes duplicados.</div>
+        {% elif lote_obj %}
+          <div class="text-slate-500 font-medium">Esta subida no generó comprobantes.</div>
+        {% else %}
+          <div class="text-slate-500 font-medium">Aún no hay comprobantes.</div>
+          <a href="{% url 'comprobantes:subir' %}" class="inline-block mt-2 text-violet-600 font-medium">Sube tus primeros comprobantes →</a>
+        {% endif %}
+      </div>
+    {% endfor %}
+    </div>
+  </div>
+
+  <!-- Barra de acciones (aparece al seleccionar) -->
+  <div id="action-bar" class="hidden fixed bottom-16 lg:bottom-0 inset-x-0 z-30 bg-white dark:bg-slate-800 border-t border-slate-200 p-3 flex-wrap gap-2 items-center shadow-2xl">
+    <span class="text-sm font-medium"><span id="sel-count2">0</span> seleccionado(s)</span>
+    <div class="flex flex-wrap gap-2 ml-auto">
+      <button name="accion" value="confirmar" class="inline-flex items-center gap-1.5 bg-emerald-600 text-white px-3 py-2 rounded-xl text-sm"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Confirmar</button>
+      <select name="ruta" class="px-2 py-2 border rounded-xl text-sm">
+        <option value="">Ruta…</option>
+        {% for r in rutas %}<option value="{{ r.id }}">Ruta {{ r.numero }}</option>{% endfor %}
+      </select>
+      <button name="accion" value="asignar_ruta" class="bg-violet-600 text-white px-3 py-2 rounded-xl text-sm">Asignar</button>
+      <button name="accion" value="exportar" class="inline-flex items-center gap-1.5 bg-slate-700 text-white px-3 py-2 rounded-xl text-sm"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><path d="M14 2v6h6"/><path d="M8 13h2"/><path d="M8 17h2"/><path d="M14 13h2"/><path d="M14 17h2"/></svg> Exportar Excel</button>
+      <button name="accion" value="eliminar" class="inline-flex items-center gap-1.5 bg-rose-600 text-white px-3 py-2 rounded-xl text-sm"
+              onclick="return confirm('¿Eliminar los seleccionados?')" title="Eliminar seleccionados"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg></button>
+    </div>
+  </div>
+</form>
+
+{% if page.has_other_pages %}
+<div class="mt-4 flex gap-2 items-center justify-center">
+  {% if page.has_previous %}<a href="?q={{ q }}&dia={{ dia }}&hora={{ hora }}&dup={{ dup }}&lote={{ lote }}&sort={{ sort }}&page={{ page.previous_page_number }}" class="px-4 py-2 bg-white rounded-xl shadow inline-flex items-center" aria-label="Anterior"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></a>{% endif %}
+  <span class="text-sm nums">{{ page.number }} / {{ page.paginator.num_pages }}</span>
+  {% if page.has_next %}<a href="?q={{ q }}&dia={{ dia }}&hora={{ hora }}&dup={{ dup }}&lote={{ lote }}&sort={{ sort }}&page={{ page.next_page_number }}" class="px-4 py-2 bg-white rounded-xl shadow inline-flex items-center" aria-label="Siguiente"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></a>{% endif %}
+</div>
+{% endif %}
+
+<!-- Modal de imagen -->
+<div id="img-modal" class="fixed inset-0 bg-black/80 hidden items-center justify-center z-50 p-4" onclick="cerrarImg()">
+  <img id="img-modal-src" src="" class="max-h-[90vh] max-w-full rounded-xl" onclick="event.stopPropagation()">
+  <button onclick="cerrarImg()" class="absolute top-4 right-5 text-white text-4xl">&times;</button>
+  <div class="absolute bottom-4 inset-x-0 text-center text-white/60 text-xs pointer-events-none">Rueda o clic para zoom · arrastra para mover</div>
+</div>
+
+<script>
+  // IIFE: evita colisiones de variables globales al re-ejecutarse con hx-boost.
+  (function () {
+    const modal = document.getElementById('img-modal');
+    // Expuesta global porque el HTML del modal usa onclick="cerrarImg()".
+    window.cerrarImg = function () { modal.classList.add('hidden'); modal.classList.remove('flex'); };
+    document.querySelectorAll('.ver-img').forEach(b => b.addEventListener('click', () => {
+      document.getElementById('img-modal-src').src = b.dataset.src;
+      modal.classList.remove('hidden'); modal.classList.add('flex');
+    }));
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') window.cerrarImg(); });
+
+    // Selección: solo cuentan las casillas visibles (la otra maqueta está oculta).
+    const bar = document.getElementById('action-bar');
+    function refrescarSel() {
+      const n = [...document.querySelectorAll('.row-check')]
+        .filter(c => c.offsetParent !== null && c.checked).length;
+      document.getElementById('sel-count2').textContent = n;
+      bar.classList.toggle('hidden', n === 0);
+      bar.classList.toggle('flex', n > 0);
+    }
+    document.querySelectorAll('.check-all').forEach(ca => ca.addEventListener('change', () => {
+      document.querySelector(ca.dataset.target)
+        .querySelectorAll('.row-check').forEach(c => c.checked = ca.checked);
+      refrescarSel();
+    }));
+    document.querySelectorAll('.row-check').forEach(c => c.addEventListener('change', refrescarSel));
+
+    // Modal de exportación.
+    const expModal = document.getElementById('export-modal');
+    function abrirExport() { expModal.classList.remove('hidden'); expModal.classList.add('flex'); }
+    function cerrarExport() { expModal.classList.add('hidden'); expModal.classList.remove('flex'); }
+    const btnExp = document.getElementById('btn-exportar');
+    if (btnExp && expModal) {
+      btnExp.addEventListener('click', abrirExport);
+      document.getElementById('export-close').addEventListener('click', cerrarExport);
+      document.getElementById('export-cancel').addEventListener('click', cerrarExport);
+      expModal.addEventListener('click', e => { if (e.target === expModal) cerrarExport(); });
+      document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarExport(); });
+
+      // "Todas": marca/desmarca todas las casillas de ruta.
+      const todas = document.getElementById('ruta-todas');
+      const chks = expModal.querySelectorAll('.ruta-chk');
+      if (todas) {
+        todas.addEventListener('change', () => chks.forEach(c => c.checked = todas.checked));
+        chks.forEach(c => c.addEventListener('change', () => {
+          todas.checked = [...chks].every(x => x.checked);
+        }));
+      }
+    }
+  })();
+</script>
+{% endblock %}

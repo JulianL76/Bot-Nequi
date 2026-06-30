@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+{% load formato %}
+{% block title %}Conciliación #{{ lote.id }}{% endblock %}
+{% block header %}Conciliación #{{ lote.id }}{% endblock %}
+{% block content %}
+<p class="text-slate-500 mb-4">{% if lote.ruta %}Ruta {{ lote.ruta.numero }}{% if lote.ruta.nombre %} — {{ lote.ruta.nombre }}{% endif %}{% endif %}</p>
+
+<div class="bg-white p-5 rounded-2xl shadow-sm mb-6">
+  <!-- Indicador de actividad (para ver si está corriendo) -->
+  <div class="flex items-center gap-2 mb-2">
+    <span id="run-dot" class="w-2.5 h-2.5 rounded-full bg-slate-300 shrink-0"></span>
+    <span id="run-status" class="text-sm font-medium text-slate-600">Estado: {{ lote.get_estado_display }}</span>
+    <span class="ml-auto text-xs text-slate-500"><span class="nums" id="bar-pct">{{ lote.progreso_pct }}</span>%</span>
+  </div>
+  <!-- Barra de carga pequeña (similar a subidas) -->
+  <div class="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
+    <div id="bar" class="bg-violet-600 h-2.5 transition-all duration-500" style="width: {{ lote.progreso_pct }}%"></div>
+  </div>
+
+  <div class="mt-4 grid grid-cols-3 md:grid-cols-6 gap-3 text-center">
+    <div><div class="text-2xl font-bold nums" id="procesadas">{{ lote.procesadas }}</div><div class="text-xs text-slate-500">Procesadas / <span class="nums">{{ lote.total }}</span></div></div>
+    <div><div class="text-2xl font-bold text-emerald-600 nums" id="ok">{{ lote.ok }}</div><div class="text-xs text-slate-500">OK</div></div>
+    <div><div class="text-2xl font-bold text-amber-600 nums" id="pendientes">{{ lote.pendientes }}</div><div class="text-xs text-slate-500">Pendientes</div></div>
+    <div><div class="text-2xl font-bold text-rose-600 nums" id="no_esta">{{ lote.no_esta }}</div><div class="text-xs text-slate-500">No está</div></div>
+    <div><div class="text-2xl font-bold text-orange-500 nums" id="revision">{{ lote.revision }}</div><div class="text-xs text-slate-500">Revisión</div></div>
+    <div><div class="text-2xl font-bold text-pink-600 nums" id="duplicados">{{ lote.duplicados }}</div><div class="text-xs text-slate-500">Duplicados</div></div>
+  </div>
+
+  <div class="mt-4 flex flex-wrap gap-2 justify-center">
+    {% if lote.estado == 'procesando' or lote.estado == 'en_cola' %}
+    <form method="post" action="{% url 'conciliaciones:pausar_conciliacion' lote.id %}">{% csrf_token %}
+      <button class="flex items-center gap-1.5 bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600">
+        <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></svg>
+        Pausar
+      </button>
+    </form>
+    {% elif lote.estado == 'pausado' %}
+    <form method="post" action="{% url 'conciliaciones:reanudar_conciliacion' lote.id %}">{% csrf_token %}
+      <button class="flex items-center gap-1.5 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700">
+        <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+        Continuar
+      </button>
+    </form>
+    {% endif %}
+    {% if lote.estado != 'procesando' and lote.estado != 'en_cola' %}
+    <form method="post" action="{% url 'conciliaciones:reprocesar_lote_conc' lote.id %}"
+          onsubmit="return confirm('¿Reprocesar todos los registros de esta conciliación con las reglas actuales?')">{% csrf_token %}<input type="hidden" name="r" value="{{ filtro_r }}"><input type="hidden" name="sort" value="{{ sort }}">
+      <button class="flex items-center gap-1.5 bg-violet-600 text-white px-4 py-2 rounded-lg hover:bg-violet-700">
+        <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
+        Procesar toda la conciliación
+      </button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Filtros por resultado + ordenamiento -->
+<div class="flex flex-wrap items-center gap-2 mb-3 text-sm">
+  {% url 'conciliaciones:lote_detalle' lote.id as base_url %}
+  <a href="{{ base_url }}?sort={{ sort }}" class="px-3 py-1.5 rounded-full border {% if not filtro_r %}bg-primary-600 text-white border-primary-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300{% endif %}">Todos</a>
+  <a href="{{ base_url }}?r=ok&sort={{ sort }}" class="px-3 py-1.5 rounded-full border {% if filtro_r == 'ok' %}bg-emerald-600 text-white border-emerald-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-emerald-600 dark:text-emerald-400{% endif %}">OK ({{ lote.ok }})</a>
+  <a href="{{ base_url }}?r=pendiente&sort={{ sort }}" class="px-3 py-1.5 rounded-full border {% if filtro_r == 'pendiente' %}bg-amber-600 text-white border-amber-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-amber-600 dark:text-amber-400{% endif %}">Pendientes ({{ lote.pendientes }})</a>
+  <a href="{{ base_url }}?r=no_esta&sort={{ sort }}" class="px-3 py-1.5 rounded-full border {% if filtro_r == 'no_esta' %}bg-rose-600 text-white border-rose-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-rose-600 dark:text-rose-400{% endif %}">No está ({{ lote.no_esta }})</a>
+  <a href="{{ base_url }}?r=revision&sort={{ sort }}" class="px-3 py-1.5 rounded-full border {% if filtro_r == 'revision' %}bg-orange-600 text-white border-orange-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-orange-600 dark:text-orange-400{% endif %}">Revisión ({{ lote.revision }})</a>
+  <a href="{{ base_url }}?r=duplicado&sort={{ sort }}" class="px-3 py-1.5 rounded-full border {% if filtro_r == 'duplicado' %}bg-pink-600 text-white border-pink-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-pink-600 dark:text-pink-400{% endif %}">Duplicados ({{ lote.duplicados }})</a>
+
+  <form method="get" class="ml-auto flex items-center gap-1">
+    {% if filtro_r %}<input type="hidden" name="r" value="{{ filtro_r }}">{% endif %}
+    <label class="text-slate-500">Ordenar:</label>
+    <select name="sort" onchange="this.form.submit()" class="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm">
+      <option value="" {% if not sort %}selected{% endif %}>Orden de subida</option>
+      <option value="-valor" {% if sort == '-valor' %}selected{% endif %}>Valor (mayor)</option>
+      <option value="valor" {% if sort == 'valor' %}selected{% endif %}>Valor (menor)</option>
+      <option value="fecha_dt" {% if sort == 'fecha_dt' %}selected{% endif %}>Fecha (ascendente)</option>
+      <option value="-fecha_dt" {% if sort == '-fecha_dt' %}selected{% endif %}>Fecha (descendente)</option>
+      <option value="hora" {% if sort == 'hora' %}selected{% endif %}>Hora</option>
+      <option value="ref" {% if sort == 'ref' %}selected{% endif %}>Referencia</option>
+      <option value="resultado" {% if sort == 'resultado' %}selected{% endif %}>Resultado</option>
+      <option value="para" {% if sort == 'para' %}selected{% endif %}>Destinatario</option>
+    </select>
+  </form>
+</div>
+
+<div class="space-y-3">
+{% for it in items %}
+  <div id="conc-item-{{ it.id }}" class="bg-white rounded-2xl shadow-sm p-4 flex items-center gap-3 scroll-mt-24">
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-2">
+        <span class="font-semibold">{{ it.ref|default:"—" }}</span>
+        {% if it.resultado == 'ok' %}
+          <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700"><svg class="w-3 h-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> OK</span>
+        {% elif it.resultado == 'pendiente' %}
+          <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700"><svg class="w-3 h-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Pendiente</span>
+        {% elif it.resultado == 'no_esta' %}
+          <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-rose-100 text-rose-700"><svg class="w-3 h-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg> No está</span>
+        {% elif it.resultado == 'revision' %}
+          <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700"><svg class="w-3 h-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg> Revisión manual</span>
+        {% elif it.resultado == 'duplicado' %}
+          <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-pink-100 text-pink-700"><svg class="w-3 h-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg> Duplicado</span>
+        {% else %}
+          <span class="text-xs px-2 py-0.5 rounded-full bg-slate-200">…</span>
+        {% endif %}
+        {% if it.tipo == 'voucher' %}<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 uppercase">Voucher</span>{% elif it.tipo == 'nequi' %}<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 uppercase">Nequi</span>{% endif %}
+      </div>
+      <div class="text-sm text-slate-500 mt-1">
+        <span class="nums">{{ it.valor|pesos }}</span> · {{ it.fecha|default:"—" }}{% if it.hora %} · <span class="nums">{{ it.hora|hora24 }}</span>{% endif %}
+        {% if it.para %}· Para: {{ it.para }}{% endif %}
+        {% if it.comprobante %}· comp. #{{ it.comprobante.id }} (<span class="nums">{{ it.comprobante.valor|pesos }}</span>){% endif %}
+      </div>
+      {% if it.resultado == 'pendiente' and it.comprobante %}<div class="flex items-center gap-1 text-xs font-medium text-amber-600 mt-1"><svg class="w-3.5 h-3.5 shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Revisa el monto: leído <span class="nums">{{ it.valor|pesos }}</span> ≠ comprobante <span class="nums">{{ it.comprobante.valor|pesos }}</span></div>{% endif %}
+      {% if it.resultado == 'revision' and it.motivo_revision %}<div class="flex items-center gap-1 text-xs text-orange-600 mt-1"><svg class="w-3.5 h-3.5 shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>{{ it.motivo_revision }}</div>{% endif %}
+      {% if it.resultado == 'duplicado' %}<div class="flex items-center gap-1.5 text-xs text-pink-600 mt-1"><svg class="w-3.5 h-3.5 shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>{{ it.aviso }}
+        {% if it.original %}
+          {% if it.original.lote_id == lote.id %}
+            <a href="{% url 'conciliaciones:lote_detalle' lote.id %}#conc-item-{{ it.original.id }}" class="font-semibold underline hover:text-pink-700">ver original</a>
+          {% else %}
+            <a href="{% url 'conciliaciones:lote_detalle' it.original.lote_id %}#conc-item-{{ it.original.id }}" class="font-semibold underline hover:text-pink-700">ver en conciliación #{{ it.original.lote_id }}</a>
+          {% endif %}
+        {% endif %}
+      </div>{% endif %}
+    </div>
+    <div class="flex items-center gap-1 shrink-0">
+      {% if it.imagen %}
+      <button type="button" class="ver-img p-2 rounded-lg text-slate-500 hover:text-primary-600 hover:bg-slate-100 dark:hover:bg-slate-700" data-src="{{ it.imagen.url }}" title="Ver imagen">
+        <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+      {% endif %}
+      <a href="{% url 'conciliaciones:ajustar_item' it.pk %}?r={{ filtro_r }}&sort={{ sort }}" data-ajustar class="p-2 rounded-lg text-violet-600 hover:bg-violet-50 dark:hover:bg-slate-700" title="Ajustar datos">
+        <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>
+      </a>
+      <form method="post" action="{% url 'conciliaciones:reprocesar_item' it.pk %}" data-keep-scroll>{% csrf_token %}<input type="hidden" name="r" value="{{ filtro_r }}"><input type="hidden" name="sort" value="{{ sort }}">
+        <button class="p-2 rounded-lg text-amber-600 hover:bg-amber-50 dark:hover:bg-slate-700" title="Reprocesar (buscar con estos datos)">
+          <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
+        </button>
+      </form>
+      {% if it.resultado == 'pendiente' and it.comprobante %}
+      <form method="post" action="{% url 'conciliaciones:confirmar_pendiente' it.pk %}" data-keep-scroll>{% csrf_token %}<input type="hidden" name="r" value="{{ filtro_r }}"><input type="hidden" name="sort" value="{{ sort }}">
+        <button class="text-violet-600 text-sm whitespace-nowrap px-2">Confirmar igual</button>
+      </form>
+      {% endif %}
+      <form method="post" action="{% url 'conciliaciones:eliminar_item' it.pk %}" data-keep-scroll
+            onsubmit="return confirm('¿Eliminar este registro de la conciliación?')">{% csrf_token %}<input type="hidden" name="r" value="{{ filtro_r }}"><input type="hidden" name="sort" value="{{ sort }}">
+        <button class="p-2 rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-700" title="Eliminar registro">
+          <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+        </button>
+      </form>
+    </div>
+  </div>
+{% empty %}
+  <div class="bg-white rounded-2xl shadow-sm p-10 text-center text-slate-400">{% if filtro_r %}No hay ítems con ese filtro.{% else %}Sin resultados aún.{% endif %}</div>
+{% endfor %}
+</div>
+
+<!-- Modal de imagen -->
+<div id="img-modal" class="fixed inset-0 bg-black/80 hidden items-center justify-center z-50 p-4" onclick="cerrarImg()">
+  <img id="img-modal-src" src="" class="max-h-[90vh] max-w-full rounded-xl" onclick="event.stopPropagation()">
+  <button onclick="cerrarImg()" class="absolute top-4 right-5 text-white text-4xl">&times;</button>
+  <div class="absolute bottom-4 inset-x-0 text-center text-white/60 text-xs pointer-events-none">Rueda o clic para zoom · arrastra para mover</div>
+</div>
+
+<script>
+  (function () {
+    const modal = document.getElementById('img-modal');
+    window.cerrarImg = function () { modal.classList.add('hidden'); modal.classList.remove('flex'); };
+    document.querySelectorAll('.ver-img').forEach(b => b.addEventListener('click', () => {
+      document.getElementById('img-modal-src').src = b.dataset.src;
+      modal.classList.remove('hidden'); modal.classList.add('flex');
+    }));
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') window.cerrarImg(); });
+
+    // "Ver original": hx-boost no salta al ancla, así que hacemos scroll + resaltado.
+    function flashTarget() {
+      if (location.hash.indexOf('#conc-item-') !== 0) return;
+      const el = document.querySelector(location.hash);
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.remove('flash-target'); void el.offsetWidth; el.classList.add('flash-target');
+    }
+    setTimeout(flashTarget, 150);
+    if (!window.__concHash) {
+      window.__concHash = true;
+      window.addEventListener('hashchange', () => setTimeout(flashTarget, 50));
+    }
+
+    // Preservar el scroll al ir a Ajustar y volver al detalle.
+    const SK = 'conc-scroll-{{ lote.id }}';
+    document.querySelectorAll('a[data-ajustar]').forEach(a => a.addEventListener('click', () => {
+      sessionStorage.setItem(SK, String(window.scrollY));
+    }));
+    // Reprocesar / Confirmar también recargan el detalle: conservar el scroll.
+    document.querySelectorAll('form[data-keep-scroll]').forEach(f => f.addEventListener('submit', () => {
+      sessionStorage.setItem(SK, String(window.scrollY));
+    }));
+    const guardado = sessionStorage.getItem(SK);
+    if (guardado !== null) {
+      sessionStorage.removeItem(SK);
+      const y = parseInt(guardado, 10);
+      // Reintentos: gana al auto-scroll de hx-boost que a veces sube al top.
+      requestAnimationFrame(() => window.scrollTo(0, y));
+      setTimeout(() => window.scrollTo(0, y), 60);
+    }
+
+    const url = "{% url 'conciliaciones:lote_progreso' lote.id %}";
+    const elDot = document.getElementById('run-dot');
+    const elStatus = document.getElementById('run-status');
+    let ultProcesadas = -1, ultCambio = Date.now();
+
+    function tick() {
+      fetch(url).then(r => r.json()).then(d => {
+        document.getElementById('bar').style.width = d.progreso + '%';
+        document.getElementById('bar-pct').textContent = d.progreso;
+        document.getElementById('procesadas').textContent = d.procesadas;
+        document.getElementById('ok').textContent = d.ok;
+        document.getElementById('pendientes').textContent = d.pendientes;
+        document.getElementById('no_esta').textContent = d.no_esta;
+        document.getElementById('revision').textContent = d.revision;
+        document.getElementById('duplicados').textContent = d.duplicados;
+
+        // Indicador de actividad / estancamiento.
+        if (d.procesadas !== ultProcesadas) { ultProcesadas = d.procesadas; ultCambio = Date.now(); }
+        const seg = (Date.now() - ultCambio) / 1000;
+        if (d.pausado || d.terminado) {
+          // Recargar para refrescar botones (Continuar) o estado final.
+          setTimeout(() => location.reload(), 800); return;
+        } else if (d.estado === 'en_cola') {
+          elDot.className = 'w-2.5 h-2.5 rounded-full bg-violet-400 shrink-0 animate-pulse';
+          elStatus.textContent = 'En cola, esperando al worker…';
+        } else if (seg > 20) {
+          elDot.className = 'w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0 animate-pulse';
+          elStatus.textContent = 'Activo, esperando respuesta de la IA (' + Math.round(seg) + 's sin avanzar)…';
+        } else {
+          elDot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 animate-pulse';
+          elStatus.textContent = 'Procesando… (' + d.procesadas + '/' + d.total + ')';
+        }
+        setTimeout(tick, 2000);
+      }).catch(() => setTimeout(tick, 3000));
+    }
+    {% if lote.estado == 'procesando' or lote.estado == 'en_cola' %}tick();{% endif %}
+  })();
+</script>
+{% endblock %}

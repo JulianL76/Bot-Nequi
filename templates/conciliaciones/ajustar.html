@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% load formato %}
+{% block title %}Ajustar conciliación{% endblock %}
+{% block header %}Ajustar{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4">Ajustar datos leídos</h1>
+
+<div class="grid lg:grid-cols-3 gap-4 items-start">
+  <form method="post" class="lg:col-span-2 bg-white p-6 rounded-xl shadow space-y-4">{% csrf_token %}<input type="hidden" name="r" value="{{ filtro_r }}"><input type="hidden" name="sort" value="{{ sort }}">
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium mb-1">Remitente</label>
+        <input type="text" name="de" value="{{ item.de }}" class="w-full px-3 py-2 border rounded-lg">
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1">Para (destinatario/titular)</label>
+        <input type="text" name="para" value="{{ item.para }}" class="w-full px-3 py-2 border rounded-lg" placeholder="Karen Acuña">
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium mb-1">Número Nequi destino</label>
+        <input type="text" name="num" value="{{ item.num }}" class="w-full px-3 py-2 border rounded-lg" placeholder="3005941334">
+      </div>
+    </div>
+    <div class="grid grid-cols-3 gap-4">
+      <div>
+        <label class="block text-sm font-medium mb-1">Tipo</label>
+        <select name="tipo" class="w-full px-3 py-2 border rounded-lg bg-white dark:bg-slate-700">
+          <option value="">—</option>
+          {% for val, txt in tipos %}<option value="{{ val }}" {% if item.tipo == val %}selected{% endif %}>{{ txt }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1">Referencia</label>
+        <input type="text" name="ref" value="{{ item.ref }}" class="w-full px-3 py-2 border rounded-lg">
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1">Valor</label>
+        <input type="text" name="valor" value="{{ item.valor_raw|default:item.valor }}" class="w-full px-3 py-2 border rounded-lg" placeholder="$20.000">
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium mb-1">Fecha</label>
+        <input type="text" name="fecha" value="{{ item.fecha }}" class="w-full px-3 py-2 border rounded-lg" placeholder="20 de junio 2026">
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1">Hora</label>
+        <input type="text" name="hora" value="{{ item.hora }}" class="w-full px-3 py-2 border rounded-lg" placeholder="12:32">
+      </div>
+    </div>
+    <div class="flex flex-wrap items-center gap-3 pt-2">
+      <button class="inline-flex items-center gap-2 bg-violet-600 text-white px-5 py-2 rounded-lg hover:bg-violet-700">
+        <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+        Guardar
+      </button>
+      {% if item.resultado == 'no_esta' %}
+      <button type="submit" formaction="{% url 'conciliaciones:agregar_confirmar' item.pk %}" data-confirm
+        class="inline-flex items-center gap-2 bg-emerald-600 text-white px-5 py-2 rounded-lg hover:bg-emerald-700">
+        <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+        <span data-label>Añadir y Confirmar</span>
+      </button>
+      {% endif %}
+      <a href="{% url 'conciliaciones:lote_detalle' item.lote_id %}?r={{ filtro_r }}&sort={{ sort }}" class="text-slate-500">Cancelar</a>
+    </div>
+    {% if item.resultado == 'no_esta' %}
+    <p class="text-sm text-slate-500">«Añadir y Confirmar» crea este movimiento en los comprobantes normales y lo confirma en la ruta. <span class="text-emerald-700 dark:text-emerald-400 font-medium">Pide doble confirmación.</span></p>
+    {% endif %}
+    <p class="text-sm text-slate-500">Tras guardar, vuelve al detalle y pulsa <span class="font-medium">Reprocesar</span> en este ítem para buscar el comprobante con los datos corregidos.</p>
+  </form>
+
+  <script>
+    (function () {
+      // Doble confirmación con cuenta regresiva: 1er clic → espera 3s (obliga a leer) →
+      // queda "listo" → 2º clic envía.
+      document.querySelectorAll('[data-confirm]').forEach(b => {
+        const orig = b.innerHTML;
+        let state = '';          // '' | 'counting' | 'ready'
+        let resetT;
+        function reset() {
+          state = ''; b.innerHTML = orig;
+          b.classList.remove('ring-2', 'ring-rose-400', 'opacity-70', 'cursor-not-allowed');
+          clearTimeout(resetT);
+        }
+        b.addEventListener('click', e => {
+          if (state === 'ready') return;     // 2º clic válido → deja enviar el formulario
+          e.preventDefault();
+          if (state === 'counting') return;  // durante la espera no hace nada
+          state = 'counting';
+          b.classList.add('opacity-70', 'cursor-not-allowed', 'ring-2', 'ring-rose-400');
+          let n = 3;
+          b.innerHTML = '¿Estás seguro? Pulsa para confirmar (' + n + ')';
+          const iv = setInterval(() => {
+            n--;
+            if (n > 0) {
+              b.innerHTML = '¿Estás seguro? Pulsa para confirmar (' + n + ')';
+            } else {
+              clearInterval(iv);
+              state = 'ready';
+              b.classList.remove('opacity-70', 'cursor-not-allowed');
+              b.innerHTML = '¿Estás seguro? Pulsa para confirmar';
+              resetT = setTimeout(reset, 8000);  // si no confirma, se reinicia
+            }
+          }, 1000);
+        });
+      });
+    })();
+  </script>
+
+  {% if item.imagen %}
+  <div class="bg-white p-3 rounded-xl shadow">
+    <div class="text-sm font-medium mb-2 text-slate-600">Imagen</div>
+    <img src="{{ item.imagen.url }}" class="w-full rounded-lg border border-slate-200">
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

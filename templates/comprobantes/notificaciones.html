@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Notificaciones{% endblock %}
+{% block header %}Notificaciones{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4">Notificaciones</h1>
+<div class="bg-white rounded-xl shadow divide-y">
+  {% for n in notifs %}
+    <div class="p-4 {% if not n.leida %}bg-violet-50{% endif %}">
+      <div class="font-semibold">{{ n.titulo }}</div>
+      <div class="text-sm text-slate-600">{{ n.mensaje }}</div>
+      <div class="text-xs text-slate-400 mt-1">{{ n.creado_en }}</div>
+    </div>
+  {% empty %}
+    <div class="p-6 text-center text-slate-400">No tienes notificaciones.</div>
+  {% endfor %}
+</div>
+{% endblock %}

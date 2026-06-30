@@ -8,3 +8,13 @@ listas_nequi.json
 logs_comprobantes/
 temp_*.jpg
 *.xlsx
+preferred_ia.json
+
+# Django / web
+db.sqlite3
+db.sqlite3.bak*
+media/
+staticfiles/
+
+# Temporales de trabajo
+scratch/
