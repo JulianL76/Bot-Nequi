@@ -41,12 +41,10 @@
 <!-- Toasts (notificaciones no intrusivas) -->
 <div id="toast-host" class="fixed top-4 right-4 z-[70] flex flex-col gap-2 w-80 max-w-[calc(100vw-2rem)] pointer-events-none"></div>
 
-<!-- Modal de imagen global (Alpine). Lo abre cualquier botón .ver-img con data-src. -->
-<div x-data x-cloak x-show="$store.img.open"
-     @keydown.escape.window="$store.img.close()" @click="$store.img.close()"
-     id="img-modal" class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-  <img id="img-modal-src" :src="$store.img.src" @click.stop class="max-h-[90vh] max-w-full rounded-xl">
-  <button @click="$store.img.close()" class="absolute top-4 right-5 text-white text-4xl">&times;</button>
+<!-- Modal de imagen global (vanilla). Lo abre cualquier botón .ver-img con data-src. -->
+<div id="img-modal" class="fixed inset-0 bg-black/80 hidden items-center justify-center z-50 p-4">
+  <img id="img-modal-src" src="" class="max-h-[90vh] max-w-full rounded-xl">
+  <button id="img-modal-close" type="button" class="absolute top-4 right-5 text-white text-4xl">&times;</button>
   <div class="absolute bottom-4 inset-x-0 text-center text-white/60 text-xs pointer-events-none">Rueda o clic para zoom · arrastra para mover</div>
 </div>
 
@@ -715,21 +713,27 @@
       var d = e.detail || {};
       window.toast(d.message || d.value || '', d.type || 'info');
     });
-    // Abrir el modal de imagen global desde cualquier botón .ver-img.
+    // Modal de imagen global (vanilla, robusto ante hx-boost).
+    var imgEl = function () { return document.getElementById('img-modal'); };
+    window.openImg = function (src) {
+      var m = imgEl(); if (!m) return;
+      var i = document.getElementById('img-modal-src'); if (i) i.src = src;
+      m.classList.remove('hidden'); m.classList.add('flex');
+    };
+    window.closeImg = function () {
+      var m = imgEl(); if (!m) return;
+      m.classList.add('hidden'); m.classList.remove('flex');
+    };
     document.addEventListener('click', function (e) {
       var b = e.target.closest && e.target.closest('.ver-img');
-      if (b && window.Alpine && Alpine.store('img')) Alpine.store('img').show(b.dataset.src);
+      if (b) { window.openImg(b.dataset.src); return; }
+      var m = imgEl();
+      if (m && !m.classList.contains('hidden') && (e.target === m || e.target.id === 'img-modal-close')) {
+        window.closeImg();
+      }
     });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') window.closeImg(); });
   }
-
-  // Store de Alpine para el modal de imagen (definido antes de que Alpine inicialice).
-  document.addEventListener('alpine:init', function () {
-    Alpine.store('img', {
-      open: false, src: '',
-      show: function (s) { this.src = s; this.open = true; },
-      close: function () { this.open = false; },
-    });
-  });
 
   // Zoom/paneo en el modal de imágenes (#img-modal-src). Una sola vez por documento
   // (hx-boost re-ejecuta este script; el flag evita listeners duplicados).
