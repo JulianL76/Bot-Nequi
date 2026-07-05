@@ -1,6 +1,6 @@
 {# Assets de FilePond + tema violeta para las pantallas de subida (subir, conciliar). #}
+{# Sin plugin de miniaturas a propósito: con cientos de fotos decodificar previews congela el navegador. #}
 <link href="https://cdn.jsdelivr.net/npm/filepond@4/dist/filepond.min.css" rel="stylesheet">
-<link href="https://cdn.jsdelivr.net/npm/filepond-plugin-image-preview@4/dist/filepond-plugin-image-preview.min.css" rel="stylesheet">
 <style>
   .filepond--root { font-family: inherit; margin-bottom: 0; }
   .filepond--panel-root { background: #faf5ff; border: 2px dashed #c4b5fd; border-radius: 14px; }
@@ -12,14 +12,10 @@
   .filepond--item-panel { background: #7c3aed; }
   .filepond--credits { display: none; }
 
-  /* Grid compacto: varias miniaturas por fila (clave con muchos archivos, hasta 300) */
-  .filepond--item { width: calc(50% - 0.5em); }
-  @media (min-width: 480px) { .filepond--item { width: calc(33.33% - 0.5em); } }
-  @media (min-width: 768px) { .filepond--item { width: calc(20% - 0.5em); } }
-  /* La lista scrollea dentro en vez de estirar la página */
+  /* Sin miniaturas: filas compactas de una línea. La lista scrollea dentro. */
+  .filepond--item { width: 100%; }
   .filepond--list-scroller { overflow-y: auto; max-height: 55vh; }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/filepond-plugin-image-preview@4/dist/filepond-plugin-image-preview.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/filepond-plugin-file-validate-type@1/dist/filepond-plugin-file-validate-type.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/filepond-plugin-file-validate-size@2/dist/filepond-plugin-file-validate-size.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/filepond@4/dist/filepond.min.js"></script>

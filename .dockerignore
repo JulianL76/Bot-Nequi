@@ -1,0 +1,25 @@
+# Fuera de la imagen: pesado o secreto.
+.git
+.venv
+node_modules
+__pycache__
+*.pyc
+
+# Secretos / datos locales
+.env
+.env.prod
+db.sqlite3
+db.sqlite3-wal
+db.sqlite3-shm
+db.sqlite3.bak*
+media/
+staticfiles/
+
+# El bot legacy y sus deps pesadas no van en la imagen web
+bot.py
+bot_gemini.py
+
+# Basura de trabajo
+scratch/
+*.xlsx
+logs_comprobantes/

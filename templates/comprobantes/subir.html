@@ -30,7 +30,6 @@
       }
       input.dataset.pond = '1';
       FilePond.registerPlugin(
-        FilePondPluginImagePreview,
         FilePondPluginFileValidateType,
         FilePondPluginFileValidateSize
       );
@@ -38,13 +37,13 @@
         name: 'imagenes',
         allowMultiple: true,
         storeAsFile: true,            // mantiene los File reales para el POST normal de Django
+        allowImagePreview: false,     // sin miniaturas: evita que cientos de fotos congelen el navegador
         acceptedFileTypes: ['image/*'],
         maxFileSize: '15MB',
-        maxFiles: 300,
+        maxFiles: 900,
         credits: false,
-        imagePreviewHeight: 120,     // miniaturas compactas en grid
         itemInsertInterval: 0,       // insertar sin animación (mejor con muchos archivos)
-        labelIdle: 'Arrastra o <span class="filepond--label-action">elige imágenes</span> · hasta 300',
+        labelIdle: 'Arrastra o <span class="filepond--label-action">elige imágenes</span> · hasta 900',
         labelMaxFileSizeExceeded: 'La imagen es muy grande',
         labelFileTypeNotAllowed: 'Solo se permiten imágenes',
       });

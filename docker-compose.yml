@@ -1,0 +1,67 @@
+# Gestor Nequi — stack de producción para VPS (Google Cloud e2-micro, 1 GB).
+# 4 servicios: web (gunicorn+WhiteNoise), worker (celery), redis, caddy (HTTPS auto).
+# Uso:  docker compose up -d --build
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Tope de memoria: en 1 GB no dejamos que Redis crezca sin límite.
+    command: ["redis-server", "--save", "60", "1", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env.prod
+    environment:
+      DJANGO_DB_PATH: /data/db.sqlite3
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    volumes:
+      - app-data:/data          # db.sqlite3 (+ WAL) persistente
+      - media:/app/media        # imágenes subidas
+    depends_on:
+      - redis
+    # sin 'ports': solo Caddy queda expuesto a internet
+    expose:
+      - "8000"
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["celery", "-A", "webapp", "worker", "--pool=solo", "--concurrency=1", "-l", "info"]
+    env_file: .env.prod
+    environment:
+      DJANGO_DB_PATH: /data/db.sqlite3
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    volumes:
+      - app-data:/data
+      - media:/app/media
+    depends_on:
+      - redis
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    # Caddy lee {$DOMAIN} de su entorno; se lo inyectamos con el mismo .env.prod.
+    env_file: .env.prod
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - media:/srv/media:ro     # Caddy sirve /media/* directo (descarga a gunicorn)
+      - caddy-data:/data        # certificados
+      - caddy-config:/config
+    depends_on:
+      - web
+
+volumes:
+  app-data:
+  media:
+  redis-data:
+  caddy-data:
+  caddy-config:

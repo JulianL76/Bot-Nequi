@@ -42,6 +42,11 @@ CSRF_TRUSTED_ORIGINS = [
     'https://*.ngrok.app',
     'https://*.pinggy.link',
 ]
+# En producción (VPS + Caddy) añade tu dominio, p. ej.
+# DJANGO_CSRF_TRUSTED_ORIGINS=https://34-120-45-67.nip.io
+CSRF_TRUSTED_ORIGINS += [
+    o.strip() for o in os.getenv('DJANGO_CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()
+]
 
 # Application definition
 
@@ -65,6 +70,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # WhiteNoise sirve los static comprimidos desde gunicorn (sin nginx).
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -100,7 +107,18 @@ WSGI_APPLICATION = 'webapp.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        # En Docker se apunta a un volumen persistente vía DJANGO_DB_PATH=/data/db.sqlite3
+        'NAME': os.getenv('DJANGO_DB_PATH', str(BASE_DIR / 'db.sqlite3')),
+        # WAL: permite que web y Celery escriban a la vez sin "database is locked".
+        # (Requiere Django >= 5.1 para init_command/transaction_mode.)
+        'OPTIONS': {
+            'timeout': 20,
+            'init_command': (
+                'PRAGMA journal_mode=WAL;'
+                'PRAGMA synchronous=NORMAL;'
+            ),
+            'transaction_mode': 'IMMEDIATE',
+        },
     }
 }
 
@@ -147,6 +165,20 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# WhiteNoise: comprime los static en collectstatic (gzip) y los cachea.
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage'},
+}
+
+# Seguridad en producción (DEBUG=False). Detrás de Caddy, que termina el TLS:
+# Caddy manda X-Forwarded-Proto=https, así Django sabe que la conexión es segura.
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
@@ -171,7 +203,7 @@ CELERY_TASK_EAGER_PROPAGATES = True
 BATCH_SIZE = int(os.getenv('BATCH_SIZE', '30'))
 
 # Máximo de archivos por subida (Django corta en 100 por defecto).
-DATA_UPLOAD_MAX_NUMBER_FILES = int(os.getenv('DATA_UPLOAD_MAX_NUMBER_FILES', '300'))
+DATA_UPLOAD_MAX_NUMBER_FILES = int(os.getenv('DATA_UPLOAD_MAX_NUMBER_FILES', '900'))
 
 
 # django-unfold — branding del panel de administración.

@@ -13,8 +13,13 @@ preferred_ia.json
 # Django / web
 db.sqlite3
 db.sqlite3.bak*
+db.sqlite3-wal
+db.sqlite3-shm
 media/
 staticfiles/
+
+# Docker / producción
+.env.prod
 
 # Temporales de trabajo
 scratch/

@@ -1,0 +1,26 @@
+# Dependencias SOLO de la plataforma web (Django + Celery + IA por API).
+# NO incluye el bot de Telegram OCR legacy (torch/easyocr/opencv/pandas),
+# que solo => >2 GB de RAM y no cabe en el plan de 1 GB.
+#
+#   pip install -r requirements-web.txt
+
+# --- Web / admin ---
+Django>=5.2
+django-unfold
+Pillow                 # manejo básico de imágenes que sube el usuario
+openpyxl               # importar / exportar Excel
+
+# --- Cola de tareas ---
+celery==5.5.2
+kombu==5.5.3
+redis==6.2.0           # RESP2; no subir a >=7 con Redis antiguo
+django-celery-beat
+
+# --- IA (por API, sin modelos locales) ---
+groq
+google-genai
+
+# --- Utilidades ---
+python-dotenv
+gunicorn               # servidor WSGI para producción (Linux)
+whitenoise             # sirve los static desde gunicorn (sin nginx)

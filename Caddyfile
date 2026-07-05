@@ -1,0 +1,20 @@
+# Caddy: HTTPS automático (Let's Encrypt) + reverse proxy a gunicorn.
+# {$DOMAIN} viene del entorno (ver .env.prod). Ej: 34-120-45-67.nip.io
+{$DOMAIN} {
+	encode gzip
+
+	# Media (imágenes de comprobantes) servido directo por Caddy, sin pasar por Django.
+	handle_path /media/* {
+		root * /srv/media
+		file_server
+	}
+
+	# Todo lo demás → gunicorn. Caddy añade X-Forwarded-Proto=https automáticamente,
+	# que Django usa (SECURE_PROXY_SSL_HEADER) para saber que la conexión es segura.
+	reverse_proxy web:8000
+
+	# Permite subir muchas imágenes de una vez (POST grande).
+	request_body {
+		max_size 2GB
+	}
+}
