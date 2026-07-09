@@ -11,6 +11,7 @@ import io
 import json
 import logging
 import re
+import time
 
 from PIL import Image
 from groq import Groq
@@ -27,14 +28,25 @@ groq_client = Groq(api_key=config.GROQ_KEY, timeout=25.0, max_retries=0) if conf
 if not groq_client:
     logger.error("❌ No se encontró GROQ_API_KEY en el entorno")
 
-gemini_client = google_genai.Client(api_key=config.GEMINI_KEY) if config.GEMINI_KEY else None
+# timeout=25s: sin esto el SDK puede colgarse indefinidamente si la red/API
+# no responde, dejando el worker "esperando a la IA" para siempre.
+gemini_client = google_genai.Client(
+    api_key=config.GEMINI_KEY,
+    http_options=google_genai.types.HttpOptions(timeout=25_000),
+) if config.GEMINI_KEY else None
 if gemini_client:
     logger.info("✅ Gemini configurado como fallback")
 
 # Enfriamiento de Groq: tras un 429, las próximas N llamadas van directo a Gemini
 # (sin reintentar Groq) para no esperar otro 429. Estado en memoria del proceso.
-GROQ_COOLDOWN_TRAS_429 = 5
+GROQ_COOLDOWN_TRAS_429 = 20
 _groq_cooldown = 0
+
+# Throttle propio de Groq: intervalo mínimo entre llamadas basado en su RPM.
+# Usa el 90 % del límite real para dejar margen (30 RPM → ~2.2 s entre llamadas).
+# Esto es INDEPENDIENTE de PAUSA_ENTRE_IMAGENES, que controla la velocidad global.
+_GROQ_MIN_INTERVAL = 60.0 / (config.GROQ_RPM * 0.9)   # ~2.22 s
+_groq_last_call: float = 0.0
 
 
 _PROMPT = ('JSON solo, sin texto extra:\n'
@@ -82,13 +94,33 @@ def _aplicar_reglas(datos: dict) -> dict:
     return datos
 
 
+def _resize_image_pil(path: str, max_px: int = 768) -> "Image.Image":
+    """Igual que _resize_image pero devuelve un PIL Image (para Gemini)."""
+    with Image.open(path) as img:
+        img = img.convert("RGB")
+        w, h = img.size
+        if max(w, h) > max_px:
+            ratio = max_px / max(w, h)
+            img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
+        return img.copy()
+
+
 async def _analizar_con_gemini(path: str):
     def _call():
-        with Image.open(path) as img:
-            img = img.convert("RGB")
-            pil_img = img.copy()
+        # Imagen redimensionada a 768 px para reducir tokens (igual que Groq).
+        # Una pantalla de celular típica (1080×2340) pasa de ~2800 tokens a ~260.
+        pil_img = _resize_image_pil(path, max_px=768)
         response = gemini_client.models.generate_content(
-            model=config.GEMINI_MODEL, contents=[_PROMPT, pil_img]
+            model=config.GEMINI_MODEL,
+            contents=[_PROMPT, pil_img],
+            config={
+                # Limitar output igual que Groq (max_tokens=200). El JSON de
+                # respuesta ocupa ~150 tokens; 250 da margen sin desperdiciar.
+                "max_output_tokens": 250,
+                # Forzar JSON puro: evita que Gemini envuelva con ```json```
+                # y ahorra tokens de markdown en cada respuesta.
+                "response_mime_type": "application/json",
+            },
         )
         return _aplicar_reglas(_parse_json_response(response.text))
     logger.info("Usando Gemini como fallback")
@@ -96,6 +128,15 @@ async def _analizar_con_gemini(path: str):
 
 
 async def _analizar_con_groq(path):
+    global _groq_last_call
+    # Throttle Groq-specific: esperar el tiempo necesario para no superar su RPM.
+    ahora = time.monotonic()
+    espera = _GROQ_MIN_INTERVAL - (ahora - _groq_last_call)
+    if espera > 0:
+        logger.debug(f"Groq throttle: esperando {espera:.2f}s")
+        await asyncio.sleep(espera)
+    _groq_last_call = time.monotonic()
+
     image_data = await asyncio.to_thread(_resize_image, path)
     msgs = [{"role": "user", "content": [
         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}},

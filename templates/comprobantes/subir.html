@@ -10,6 +10,7 @@
 <div class="bg-white p-6 rounded-xl shadow max-w-2xl">
   <form method="post" enctype="multipart/form-data" hx-boost="false">{% csrf_token %}
     <input type="file" name="imagenes" multiple accept="image/*" class="filepond-input">
+    <div class="fp-contador"></div>
     <div class="text-sm text-slate-500 mt-2">Puedes subir muchas a la vez (se procesan en lotes de 30).</div>
     <button class="mt-5 inline-flex items-center gap-2 bg-violet-600 text-white px-6 py-2 rounded hover:bg-violet-700">
       <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
@@ -33,7 +34,8 @@
         FilePondPluginFileValidateType,
         FilePondPluginFileValidateSize
       );
-      FilePond.create(input, {
+      var contador = document.querySelector('.fp-contador');
+      var pond = FilePond.create(input, {
         name: 'imagenes',
         allowMultiple: true,
         storeAsFile: true,            // mantiene los File reales para el POST normal de Django
@@ -47,6 +49,12 @@
         labelMaxFileSizeExceeded: 'La imagen es muy grande',
         labelFileTypeNotAllowed: 'Solo se permiten imágenes',
       });
+      function actualizarContador() {
+        var n = pond.getFiles().length;
+        contador.textContent = n ? n + (n === 1 ? ' imagen seleccionada' : ' imágenes seleccionadas') : '';
+      }
+      pond.on('addfile', actualizarContador);
+      pond.on('removefile', actualizarContador);
     })();
   })();
 </script>

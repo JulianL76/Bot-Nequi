@@ -50,6 +50,41 @@
         Procesar toda la conciliación
       </button>
     </form>
+    <div x-data="{ open: false, texto: '' }">
+      <button type="button" @click="open = true" class="flex items-center gap-1.5 bg-rose-600 text-white px-4 py-2 rounded-lg hover:bg-rose-700">
+        <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+        Eliminar conciliación
+      </button>
+
+      <div x-show="open" x-cloak @click="open = false" @keydown.escape.window="open = false"
+           class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div class="modal-box w-full max-w-md" @click.stop>
+          <h3 class="text-lg font-bold text-rose-600">Eliminar conciliación #{{ lote.id }}</h3>
+          <p class="text-sm text-slate-600 dark:text-slate-300 mt-2">
+            Se revertirán a "sin confirmar" los comprobantes que esta conciliación confirmó
+            (y se borrarán los que se crearon manualmente aquí). <strong>Esta acción no se puede deshacer.</strong>
+          </p>
+          <p class="text-sm text-slate-600 dark:text-slate-300 mt-3">
+            Para confirmar, escribe
+            <code class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 font-bold select-all">{% if lote.ruta %}{{ lote.ruta.numero }}{% else %}SR{% endif %}-{{ lote.id }}</code>
+            (ruta-conciliación):
+          </p>
+          <input type="text" x-model="texto" autocomplete="off"
+                 class="w-full mt-2 px-3 py-2 border rounded-lg dark:bg-slate-700 dark:border-slate-600"
+                 placeholder="{% if lote.ruta %}{{ lote.ruta.numero }}{% else %}SR{% endif %}-{{ lote.id }}">
+          <div class="flex justify-end gap-2 mt-4">
+            <button type="button" @click="open = false; texto = ''" class="btn btn-ghost btn-sm">Cancelar</button>
+            <form method="post" action="{% url 'conciliaciones:eliminar_lote' lote.id %}">{% csrf_token %}
+              <button type="submit"
+                      :disabled="texto !== '{% if lote.ruta %}{{ lote.ruta.numero }}{% else %}SR{% endif %}-{{ lote.id }}'"
+                      class="btn btn-sm bg-rose-600 hover:bg-rose-700 text-white disabled:opacity-40 disabled:cursor-not-allowed">
+                Eliminar definitivamente
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
     {% endif %}
   </div>
 </div>
@@ -63,6 +98,12 @@
   <a href="{{ base_url }}?r=no_esta&sort={{ sort }}" class="px-3 py-1.5 rounded-full border {% if filtro_r == 'no_esta' %}bg-rose-600 text-white border-rose-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-rose-600 dark:text-rose-400{% endif %}">No está ({{ lote.no_esta }})</a>
   <a href="{{ base_url }}?r=revision&sort={{ sort }}" class="px-3 py-1.5 rounded-full border {% if filtro_r == 'revision' %}bg-orange-600 text-white border-orange-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-orange-600 dark:text-orange-400{% endif %}">Revisión ({{ lote.revision }})</a>
   <a href="{{ base_url }}?r=duplicado&sort={{ sort }}" class="px-3 py-1.5 rounded-full border {% if filtro_r == 'duplicado' %}bg-pink-600 text-white border-pink-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-pink-600 dark:text-pink-400{% endif %}">Duplicados ({{ lote.duplicados }})</a>
+  {% if n_obs_lote %}
+  <a href="{{ base_url }}?r=obs&sort={{ sort }}" class="flex items-center gap-1 px-3 py-1.5 rounded-full border {% if filtro_r == 'obs' %}bg-amber-500 text-white border-amber-500{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-amber-600 dark:text-amber-400{% endif %}">
+    <svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    Observaciones ({{ n_obs_lote }})
+  </a>
+  {% endif %}
 
   <form method="get" class="ml-auto flex items-center gap-1">
     {% if filtro_r %}<input type="hidden" name="r" value="{{ filtro_r }}">{% endif %}
@@ -83,7 +124,8 @@
 
 <div class="space-y-3">
 {% for it in items %}
-  <div id="conc-item-{{ it.id }}" class="bg-white rounded-2xl shadow-sm p-4 flex items-center gap-3 scroll-mt-24">
+  <div id="conc-item-{{ it.id }}" class="bg-white rounded-2xl shadow-sm p-4 scroll-mt-24" x-data="{ obsOpen: false }">
+    <div class="flex items-center gap-3">
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-2">
         <span class="font-semibold">{{ it.ref|default:"—" }}</span>
@@ -125,6 +167,11 @@
         <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
       </button>
       {% endif %}
+      <button type="button" @click="obsOpen = true"
+              class="relative p-2 rounded-lg {% if it.observaciones %}text-amber-600 bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-400{% else %}text-slate-500 hover:text-primary-600 hover:bg-slate-100 dark:hover:bg-slate-700{% endif %}"
+              title="{% if it.observaciones %}Ver/editar observación{% else %}Añadir observación{% endif %}">
+        <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="{% if it.observaciones %}currentColor{% else %}none{% endif %}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </button>
       <a href="{% url 'conciliaciones:ajustar_item' it.pk %}?r={{ filtro_r }}&sort={{ sort }}" data-ajustar class="p-2 rounded-lg text-violet-600 hover:bg-violet-50 dark:hover:bg-slate-700" title="Ajustar datos">
         <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>
       </a>
@@ -144,6 +191,22 @@
           <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
         </button>
       </form>
+    </div>
+    </div>
+
+    <div x-show="obsOpen" x-cloak @click="obsOpen = false" @keydown.escape.window="obsOpen = false"
+         class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div class="modal-box w-full max-w-md" @click.stop>
+        <h3 class="text-lg font-bold">Observación · {{ it.ref|default:"—" }}</h3>
+        <form method="post" action="{% url 'conciliaciones:guardar_observacion' it.pk %}" data-keep-scroll>{% csrf_token %}<input type="hidden" name="r" value="{{ filtro_r }}"><input type="hidden" name="sort" value="{{ sort }}">
+          <textarea name="observaciones" rows="4" placeholder="Escribe una observación sobre este registro…" autofocus
+                    class="w-full mt-3 text-sm px-3 py-2 border rounded-lg dark:bg-slate-700 dark:border-slate-600">{{ it.observaciones }}</textarea>
+          <div class="flex justify-end gap-2 mt-4">
+            <button type="button" @click="obsOpen = false" class="btn btn-ghost btn-sm">Cancelar</button>
+            <button type="submit" class="btn btn-sm bg-primary-600 hover:bg-primary-700 text-white">Guardar</button>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
 {% empty %}
@@ -190,8 +253,19 @@
     const elStatus = document.getElementById('run-status');
     let ultProcesadas = -1, ultCambio = Date.now();
 
+    // hx-boost no destruye los timers de la página anterior al navegar (solo
+    // cambia el <body>): sin esto, el tick() de un lote visitado antes seguía
+    // vivo y escribía sobre los elementos #bar/#procesadas de OTRO lote (mismos
+    // IDs en cada página), mezclando datos de dos conciliaciones distintas.
+    // Cada ejecución de este script reclama un token nuevo; los loops viejos
+    // se detienen solos al ver que ya no son el token vigente.
+    window.__concRunToken = (window.__concRunToken || 0) + 1;
+    const miToken = window.__concRunToken;
+
     function tick() {
+      if (window.__concRunToken !== miToken) return;  // superado por una página más nueva
       fetch(url).then(r => r.json()).then(d => {
+        if (window.__concRunToken !== miToken) return;  // respuesta tardía de una página vieja
         document.getElementById('bar').style.width = d.progreso + '%';
         document.getElementById('bar-pct').textContent = d.progreso;
         document.getElementById('procesadas').textContent = d.procesadas;

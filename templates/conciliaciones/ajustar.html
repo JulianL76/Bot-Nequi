@@ -50,6 +50,10 @@
         <input type="text" name="hora" value="{{ item.hora }}" class="w-full px-3 py-2 border rounded-lg" placeholder="12:32">
       </div>
     </div>
+    <div>
+      <label class="block text-sm font-medium mb-1">Observaciones</label>
+      <textarea name="observaciones" rows="3" class="w-full px-3 py-2 border rounded-lg" placeholder="Notas sobre este registro…">{{ item.observaciones }}</textarea>
+    </div>
     <div class="flex flex-wrap items-center gap-3 pt-2">
       <button class="inline-flex items-center gap-2 bg-violet-600 text-white px-5 py-2 rounded-lg hover:bg-violet-700">
         <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>

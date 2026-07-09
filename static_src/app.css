@@ -18,11 +18,13 @@
 @layer components {
   .nav-link { @apply flex items-center gap-3 px-3 py-2 rounded-lg text-slate-300 hover:bg-white/10 hover:text-white transition; }
   .nav-link.active { @apply bg-primary-600 text-white shadow; }
-  .tab { @apply flex flex-col items-center justify-center gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400 transition-colors; }
-  .tab .icon-wrapper { @apply flex items-center justify-center w-12 h-8 rounded-full relative z-10; }
-  .tab .icon-wrapper svg { @apply relative z-10; }
-  .tab.active .icon-wrapper { @apply text-primary-600 dark:text-primary-400; }
-  .tab.active span { @apply text-primary-600 dark:text-primary-400 font-semibold; }
+  /* .navtab (no ".tab": ese nombre choca con el componente "tab" de DaisyUI,
+     que impone height:2rem/padding/border y deforma la barra inferior). */
+  .navtab { @apply flex flex-col items-center justify-center gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400 transition-colors; }
+  .navtab .icon-wrapper { @apply flex items-center justify-center w-12 h-8 rounded-full relative z-10; }
+  .navtab .icon-wrapper svg { @apply relative z-10; }
+  .navtab.active .icon-wrapper { @apply text-primary-600 dark:text-primary-400; }
+  .navtab.active span { @apply text-primary-600 dark:text-primary-400 font-semibold; }
   .sheet-link { @apply flex items-center gap-3 px-4 py-3 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700; }
 }
 

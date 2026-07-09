@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
+from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
@@ -40,6 +41,8 @@ def lista(request):
     """Historial de conciliaciones (lotes de conciliación)."""
     negocio = get_negocio(request.user)
     qs = (LoteConciliacion.objects.filter(negocio=negocio).select_related("ruta")
+          .annotate(n_obs=Count("items", filter=~Q(items__observaciones="")))
+          .order_by("-creado_en")
           if negocio else LoteConciliacion.objects.none())
     paginator = Paginator(qs, 20)
     page = paginator.get_page(request.GET.get("page"))
@@ -80,12 +83,16 @@ def lote_detalle(request, lote_id):
     negocio = get_negocio(request.user)
     lote = get_object_or_404(LoteConciliacion, pk=lote_id, negocio=negocio)
     items = lote.items.select_related("comprobante").all()
-    # Filtro por resultado (p. ej. solo revisión o solo no encontrados).
+    n_obs_lote = lote.items.exclude(observaciones="").count()
+    # Filtro por resultado (p. ej. solo revisión o solo no encontrados), u "obs" para
+    # ver solo los ítems con observación.
     r = request.GET.get("r", "").strip()
     validos = {Conciliacion.OK, Conciliacion.PENDIENTE, Conciliacion.NO_ESTA,
                Conciliacion.REVISION, Conciliacion.DUPLICADO}
     if r in validos:
         items = items.filter(resultado=r)
+    elif r == "obs":
+        items = items.exclude(observaciones="")
 
     # Ordenamiento de los registros.
     sort = request.GET.get("sort", "").strip()
@@ -106,7 +113,7 @@ def lote_detalle(request, lote_id):
                            .select_related("lote", "lote__ruta").order_by("creado_en").first())
 
     return render(request, "conciliaciones/lote_detalle.html",
-                  {"lote": lote, "items": items, "filtro_r": r, "sort": sort})
+                  {"lote": lote, "items": items, "filtro_r": r, "sort": sort, "n_obs_lote": n_obs_lote})
 
 
 @login_required
@@ -179,6 +186,40 @@ def reanudar_conciliacion(request, lote_id):
     return redirect("conciliaciones:lote_detalle", lote_id=lote.id)
 
 
+@login_required
+def eliminar_lote(request, lote_id):
+    """Borra una conciliación completa y revierte todo lo que confirmó:
+    - Ítems OK cuyo comprobante fue creado manualmente para esta conciliación
+      (origen=MANUAL, vía "Añadir y confirmar") → se borra el comprobante entero.
+    - Ítems OK sobre un comprobante ya existente → se revierte a "sin confirmar"
+      y se le quita la ruta asignada (no se toca su origen ni sus datos).
+    Los ítems Duplicado no se tocan: no confirmaron ni reasignaron nada.
+    """
+    negocio = get_negocio(request.user)
+    lote = get_object_or_404(LoteConciliacion, pk=lote_id, negocio=negocio)
+    if request.method == "POST":
+        items_ok = (lote.items.filter(resultado=Conciliacion.OK, comprobante__isnull=False)
+                    .select_related("comprobante"))
+        n_revertidos = n_borrados = 0
+        for item in items_ok:
+            comp = item.comprobante
+            if comp.origen == Comprobante.ORIGEN_MANUAL:
+                comp.delete()
+                n_borrados += 1
+            else:
+                comp.estado = Comprobante.SIN_CONFIRMAR
+                comp.ruta = None
+                comp.save(update_fields=["estado", "ruta"])
+                n_revertidos += 1
+        lote.delete()  # cascada de Conciliacion + sus imágenes (señal post_delete)
+        messages.success(
+            request,
+            f"Conciliación #{lote_id} eliminada. {n_revertidos} comprobante(s) revertido(s) a "
+            f"sin confirmar y {n_borrados} comprobante(s) manual(es) eliminado(s)."
+        )
+    return redirect("conciliaciones:lista")
+
+
 def _aplicar_campos_post(item, request):
     """Vuelca los campos editables del formulario de ajuste en el item (sin guardar)."""
     from core.parsing import limpiar_monto, parse_fecha, parse_hora
@@ -196,6 +237,7 @@ def _aplicar_campos_post(item, request):
     hora_in = request.POST.get("hora", item.hora)
     t = parse_hora(hora_in)
     item.hora = t.strftime("%H:%M") if t else hora_in
+    item.observaciones = request.POST.get("observaciones", item.observaciones).strip()
 
 
 @login_required
@@ -286,6 +328,20 @@ def eliminar_item(request, pk):
         _recontar_lote(lote)
         messages.success(request, "Registro eliminado de la conciliación.")
     return _volver_detalle(lote.id, r, sort)
+
+
+@login_required
+def guardar_observacion(request, pk):
+    """Guarda (o borra, si llega vacía) la observación de un ítem de conciliación."""
+    negocio = get_negocio(request.user)
+    item = get_object_or_404(Conciliacion, pk=pk, negocio=negocio)
+    r = request.POST.get("r", "").strip()
+    sort = request.POST.get("sort", "").strip()
+    if request.method == "POST":
+        item.observaciones = request.POST.get("observaciones", "").strip()
+        item.save(update_fields=["observaciones"])
+        messages.success(request, "Observación guardada." if item.observaciones else "Observación eliminada.")
+    return _volver_detalle(item.lote_id, r, sort)
 
 
 @login_required

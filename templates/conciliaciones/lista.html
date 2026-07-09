@@ -9,7 +9,7 @@
 
 <div class="space-y-3">
 {% for l in page %}
-  <div class="bg-white rounded-2xl shadow-sm p-4">
+  <div class="bg-white rounded-2xl shadow-sm p-4" x-data="{ open: false, texto: '' }">
     <div class="flex items-center justify-between">
       <span class="font-semibold">#{{ l.id }} · {% if l.ruta %}Ruta {{ l.ruta.numero }}{% else %}Sin ruta{% endif %}</span>
       <span class="text-xs px-2 py-0.5 rounded-full bg-slate-200">{{ l.get_estado_display }}</span>
@@ -21,8 +21,41 @@
       <span class="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-rose-100 text-rose-700"><svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>{{ l.no_esta }} no está</span>
       {% if l.revision %}<span class="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-orange-100 text-orange-700"><svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>{{ l.revision }} rev.</span>{% endif %}
       {% if l.duplicados %}<span class="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-pink-100 text-pink-700"><svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>{{ l.duplicados }} dup.</span>{% endif %}
+      {% if l.n_obs %}<a href="{% url 'conciliaciones:lote_detalle' l.id %}" class="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-amber-100 text-amber-700 hover:bg-amber-200"><svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>{{ l.n_obs }} obs.</a>{% endif %}
     </div>
-    <a href="{% url 'conciliaciones:lote_detalle' l.id %}" class="inline-block mt-3 text-sm text-violet-600">Ver detalle</a>
+    <div class="flex items-center justify-between mt-3">
+      <a href="{% url 'conciliaciones:lote_detalle' l.id %}" class="text-sm text-violet-600">Ver detalle</a>
+      <button type="button" @click="open = true" class="text-sm text-rose-600 hover:text-rose-700">Eliminar</button>
+    </div>
+
+    <div x-show="open" x-cloak @click="open = false" @keydown.escape.window="open = false"
+         class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div class="modal-box w-full max-w-md" @click.stop>
+        <h3 class="text-lg font-bold text-rose-600">Eliminar conciliación #{{ l.id }}</h3>
+        <p class="text-sm text-slate-600 dark:text-slate-300 mt-2">
+          Se revertirán a "sin confirmar" los comprobantes que esta conciliación confirmó
+          (y se borrarán los que se crearon manualmente aquí). <strong>Esta acción no se puede deshacer.</strong>
+        </p>
+        <p class="text-sm text-slate-600 dark:text-slate-300 mt-3">
+          Para confirmar, escribe
+          <code class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 font-bold select-all">{% if l.ruta %}{{ l.ruta.numero }}{% else %}SR{% endif %}-{{ l.id }}</code>
+          (ruta-conciliación):
+        </p>
+        <input type="text" x-model="texto" autocomplete="off"
+               class="w-full mt-2 px-3 py-2 border rounded-lg dark:bg-slate-700 dark:border-slate-600"
+               placeholder="{% if l.ruta %}{{ l.ruta.numero }}{% else %}SR{% endif %}-{{ l.id }}">
+        <div class="flex justify-end gap-2 mt-4">
+          <button type="button" @click="open = false; texto = ''" class="btn btn-ghost btn-sm">Cancelar</button>
+          <form method="post" action="{% url 'conciliaciones:eliminar_lote' l.id %}">{% csrf_token %}
+            <button type="submit"
+                    :disabled="texto !== '{% if l.ruta %}{{ l.ruta.numero }}{% else %}SR{% endif %}-{{ l.id }}'"
+                    class="btn btn-sm bg-rose-600 hover:bg-rose-700 text-white disabled:opacity-40 disabled:cursor-not-allowed">
+              Eliminar definitivamente
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
   </div>
 {% empty %}
   <div class="bg-white rounded-2xl shadow-sm p-10 text-center text-slate-400">Aún no hay conciliaciones.</div>

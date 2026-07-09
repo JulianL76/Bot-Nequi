@@ -376,7 +376,10 @@
       {% if messages %}
       <script>
         (function () {
-          var msgs = [{% for m in messages %}{t: "{{ m.tags|escapejs }}", x: "{{ m|escapejs }}"},{% endfor %}];
+          var msgs = [];
+          {% for m in messages %}
+          msgs.push({t: "{{ m.tags|escapejs }}", x: "{{ m|escapejs }}"});
+          {% endfor %}
           function show() { msgs.forEach(function (m) { window.toast(m.x, (m.t || 'info').split(' ')[0]); }); }
           if (window.toast) show(); else document.addEventListener('DOMContentLoaded', show);
         })();
@@ -391,7 +394,7 @@
 <!-- Barra inferior tipo app (solo móvil) -->
 <div x-data="{ mas: false }">
 <nav class="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white dark:bg-slate-800 border-t border-slate-200 grid grid-cols-5 h-16 pb-[env(safe-area-inset-bottom)]">
-  <a href="{% url 'dashboard:home' %}" class="tab {% if vn == 'dashboard:home' %}active{% endif %}">
+  <a href="{% url 'dashboard:home' %}" class="navtab {% if vn == 'dashboard:home' %}active{% endif %}">
     <div class="icon-wrapper">
       {% if vn == 'dashboard:home' %}<div class="absolute inset-0 rounded-full bg-primary-100 dark:bg-primary-900/50" style="view-transition-name: active-tab-bg;"></div>{% endif %}<!-- @license lucide-static v1.21.0 - ISC -->
 <svg class="w-5 h-5" style="view-transition-name: icon-inicio;"
@@ -412,7 +415,7 @@
 </div>
     <span>Inicio</span>
   </a>
-  <a href="{% url 'comprobantes:lista' %}" class="tab {% if vn == 'comprobantes:lista' or vn == 'comprobantes:editar' %}active{% endif %}">
+  <a href="{% url 'comprobantes:lista' %}" class="navtab {% if vn == 'comprobantes:lista' or vn == 'comprobantes:editar' %}active{% endif %}">
     <div class="icon-wrapper">
       {% if vn == 'comprobantes:lista' or vn == 'comprobantes:editar' %}<div class="absolute inset-0 rounded-full bg-primary-100 dark:bg-primary-900/50" style="view-transition-name: active-tab-bg;"></div>{% endif %}<!-- @license lucide-static v1.21.0 - ISC -->
 <svg class="w-5 h-5" style="view-transition-name: icon-comprob;"
@@ -434,7 +437,7 @@
 </div>
     <span>Comprob.</span>
   </a>
-  <a href="{% url 'comprobantes:subir' %}" class="tab relative">
+  <a href="{% url 'comprobantes:subir' %}" class="navtab relative">
     <span class="absolute -top-5 w-14 h-14 rounded-full bg-primary-600 text-white flex items-center justify-center shadow-lg"><!-- @license lucide-static v1.21.0 - ISC -->
 <svg class="w-7 h-7"
   
@@ -454,7 +457,7 @@
 </span>
     <span class="mt-7 text-primary-600 dark:text-primary-400">Subir</span>
   </a>
-  <a href="{% url 'dashboard:pendientes' %}" class="tab relative {% if vn == 'dashboard:pendientes' %}active{% endif %}">
+  <a href="{% url 'dashboard:pendientes' %}" class="navtab relative {% if vn == 'dashboard:pendientes' %}active{% endif %}">
     <div class="icon-wrapper">
       {% if vn == 'dashboard:pendientes' %}<div class="absolute inset-0 rounded-full bg-primary-100 dark:bg-primary-900/50" style="view-transition-name: active-tab-bg;"></div>{% endif %}<!-- @license lucide-static v1.21.0 - ISC -->
 <svg class="w-5 h-5" style="view-transition-name: icon-pend;"
@@ -478,7 +481,7 @@
     <span>Pend.</span>
     {% if notif_no_leidas %}<span class="absolute top-1 right-2 bg-rose-500 text-white text-[10px] rounded-full px-1">{{ notif_no_leidas }}</span>{% endif %}
   </a>
-  <button type="button" @click="mas = !mas" class="tab">
+  <button type="button" @click="mas = !mas" class="navtab">
     <div class="icon-wrapper"><!-- @license lucide-static v1.21.0 - ISC -->
 <svg class="w-5 h-5" style="view-transition-name: icon-mas;"
   
@@ -658,13 +661,13 @@
 <script>
   // Cambiar el tab activo de inmediato para ver la animación antes de que cargue la página
   document.addEventListener('click', function(e) {
-    const link = e.target.closest('a.nav-link, a.tab');
+    const link = e.target.closest('a.nav-link, a.navtab');
     if (!link || link.classList.contains('active')) return;
-    
+
     // Evitar aplicarlo en links que abren el bottom sheet de Más opciones
     if (link.getAttribute('onclick')) return;
 
-    const selector = link.classList.contains('tab') ? 'a.tab' : 'a.nav-link';
+    const selector = link.classList.contains('navtab') ? 'a.navtab' : 'a.nav-link';
     const updateActive = () => {
       document.querySelectorAll(selector).forEach(el => el.classList.remove('active'));
       link.classList.add('active');

@@ -107,6 +107,8 @@ class Conciliacion(models.Model):
         Comprobante, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="conciliaciones",
     )
+    # Nota libre del usuario sobre este ítem (p. ej. "confirmado por WhatsApp con el corresponsal").
+    observaciones = models.TextField(blank=True, default="")
     creado_en = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -154,8 +154,17 @@
       elFeed.innerHTML = html || '<li class="text-slate-400">Sin comprobantes todavía.</li>';
     }
 
+    // hx-boost no destruye los timers de la página anterior al navegar (solo
+    // cambia el <body>): sin esto, el tick() de un lote visitado antes seguía
+    // vivo y escribía sobre los elementos #bar/#procesadas de OTRO lote (mismos
+    // IDs en cada página), mezclando datos de dos subidas distintas.
+    window.__loteRunToken = (window.__loteRunToken || 0) + 1;
+    const miToken = window.__loteRunToken;
+
     function tick() {
+      if (window.__loteRunToken !== miToken) return;  // superado por una página más nueva
       fetch(url).then(r => r.json()).then(d => {
+        if (window.__loteRunToken !== miToken) return;  // respuesta tardía de una página vieja
         render(d);
         // Al pausar o terminar, recargamos para refrescar los botones (Reanudar, etc.).
         if (d.pausado || d.terminado) { setTimeout(() => location.reload(), 1200); return; }

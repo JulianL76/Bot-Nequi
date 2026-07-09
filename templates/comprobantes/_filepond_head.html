@@ -12,9 +12,12 @@
   .filepond--item-panel { background: #7c3aed; }
   .filepond--credits { display: none; }
 
-  /* Sin miniaturas: filas compactas de una línea. La lista scrollea dentro. */
-  .filepond--item { width: 100%; }
-  .filepond--list-scroller { overflow-y: auto; max-height: 55vh; }
+  /* Sin lista de archivos: con cientos de imágenes, una fila por cada una
+     estira la página muchísimo. Se oculta y se muestra solo un contador. */
+  .filepond--list-scroller,
+  .filepond--list { display: none !important; }
+  .fp-contador { margin-top: .5rem; font-size: .875rem; color: #6d28d9; font-weight: 500; }
+  .dark .fp-contador { color: #c4b5fd; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/filepond-plugin-file-validate-type@1/dist/filepond-plugin-file-validate-type.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/filepond-plugin-file-validate-size@2/dist/filepond-plugin-file-validate-size.min.js"></script>
