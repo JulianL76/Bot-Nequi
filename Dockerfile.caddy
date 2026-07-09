@@ -1,0 +1,5 @@
+# Caddy con el Caddyfile horneado en la imagen (en vez de bind-mount desde el
+# host): evita fallos de despliegue cuando el host no tiene el archivo en el
+# path esperado (rama equivocada, clon incompleto, Swarm con paths relativos).
+FROM caddy:2-alpine
+COPY Caddyfile /etc/caddy/Caddyfile

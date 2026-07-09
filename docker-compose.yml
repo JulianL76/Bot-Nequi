@@ -56,7 +56,9 @@ services:
       - redis
 
   caddy:
-    image: caddy:2-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy   # el Caddyfile va horneado en la imagen, sin bind-mount
     restart: unless-stopped
     ports:
       - "80:80"
@@ -65,7 +67,6 @@ services:
     environment:
       DOMAIN: ${DOMAIN}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - media:/srv/media:ro     # Caddy sirve /media/* directo (descarga a gunicorn)
       - caddy-data:/data        # certificados
       - caddy-config:/config
