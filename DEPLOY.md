@@ -27,6 +27,11 @@ sudo usermod -aG docker $USER
 # cierra sesión y vuelve a entrar (o: newgrp docker)
 ```
 
+Las variables (`${VAR}`) del `docker-compose.yml` **no** vienen de un `env_file` — el archivo
+`.env.prod` con los secretos está en `.gitignore` a propósito (no se sube al repo), así que Git
+nunca lo clona. Hay dos formas de dárselas al stack según cómo despliegues: **A) por SSH con el
+CLI** (usando `--env-file`) o **B) desde Portainer** (pegándolas en su UI). Elige una.
+
 ## 3. Traer el código
 ```bash
 git clone <URL-de-tu-repo> gestor-nequi
@@ -50,8 +55,9 @@ Rellena en `.env.prod`:
 
 ## 5. Levantar
 ```bash
-docker compose up -d --build
+docker compose --env-file .env.prod up -d --build
 ```
+`--env-file` es obligatorio: sin él, `${DOMAIN}`, `${DJANGO_SECRET_KEY}`, etc. quedan vacíos.
 Primer arranque: Caddy pide el certificado a Let's Encrypt (unos segundos). Debe verse
 `certificate obtained successfully` en `docker compose logs caddy`.
 
@@ -75,9 +81,50 @@ docker stats                      # uso de RAM/CPU (vigilar en 1 GB)
 ### Actualizar a una versión nueva
 ```bash
 git pull
-docker compose up -d --build      # reconstruye y reemplaza sin perder datos
+docker compose --env-file .env.prod up -d --build   # reconstruye y reemplaza sin perder datos
 docker compose exec web python manage.py migrate
 ```
+
+## Método B: desplegar desde Portainer (Git)
+
+Si administras la VM con Portainer (Stacks → Add stack → **Repository**), no hay acceso a un
+`.env.prod` local: las variables se pegan directamente en la UI de Portainer.
+
+1. **Build method**: `Repository`.
+2. **Repository URL**: la URL de tu repo, p. ej. `https://github.com/tu-usuario/Bot-Nequi`.
+3. **Repository reference**: `refs/heads/feat/webapp-conciliaciones` (o la rama que despliegues;
+   con `refs/heads/<rama>`, no solo el nombre).
+4. **Compose path**: `docker-compose.yml` (ya es el valor por defecto).
+5. **Authentication**: actívalo solo si el repo es privado (usuario + token de GitHub).
+6. Baja hasta **Environment variables** (debajo de "GitOps updates") y agrega, una por una
+   (botón "+ add environment variable"), las mismas claves de `.env.prod.example`:
+
+   | name | value |
+   |---|---|
+   | `DOMAIN` | `34-120-45-67.nip.io` (tu IP con nip.io, o tu dominio de DuckDNS) |
+   | `DJANGO_CSRF_TRUSTED_ORIGINS` | `https://34-120-45-67.nip.io` |
+   | `DJANGO_SECRET_KEY` | genera una con `python3 -c "import secrets;print(secrets.token_urlsafe(50))"` |
+   | `DJANGO_DEBUG` | `False` |
+   | `DJANGO_ALLOWED_HOSTS` | `34-120-45-67.nip.io,web,localhost` |
+   | `GROQ_API_KEY` | tu clave de Groq |
+   | `GEMINI_API_KEY` | tu clave de Gemini |
+
+7. **Deploy the stack**. Portainer clona el repo, construye la imagen (`build: .` en el compose)
+   y levanta los 4 servicios.
+8. Migraciones + superusuario: Portainer → Containers → el contenedor `..._web_1` → **Console**
+   → `/bin/sh` → Connect, y ahí:
+   ```sh
+   python manage.py migrate
+   python manage.py createsuperuser
+   ```
+   (o desde tu propia terminal si tienes el cliente Docker apuntando a esa VM:
+   `docker exec -it <nombre_del_contenedor_web> python manage.py migrate`).
+9. Para actualizar después de un `git push`: Stacks → tu stack → **Pull and redeploy** (o activa
+   **GitOps updates** para que Portainer lo haga solo cada cierto intervalo).
+
+Nota: como el `docker-compose.yml` no expone puertos de `web` (solo Caddy publica 80/443), no
+hace falta tocar nada de "Access control" de Portainer para la web en sí — solo asegúrate de que
+el firewall de la VM permita 80/443 (paso 0).
 
 ### Backup (SQLite + imágenes)
 Los datos viven en volúmenes Docker (`app-data`, `media`). Copia caliente segura:

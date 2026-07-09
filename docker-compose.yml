@@ -1,6 +1,24 @@
 # Gestor Nequi — stack de producción para VPS (Google Cloud e2-micro, 1 GB).
 # 4 servicios: web (gunicorn+WhiteNoise), worker (celery), redis, caddy (HTTPS auto).
-# Uso:  docker compose up -d --build
+#
+# Variables (${VAR}) se rellenan con las "Environment variables" del stack:
+#   - docker compose CLI: usa .env.prod (`docker compose --env-file .env.prod up -d --build`)
+#   - Portainer (Repository/Git): pégalas en la sección "Environment variables" del stack;
+#     no hay .env.prod en el repo (está en .gitignore por los secretos) así que NO se usa
+#     env_file aquí, solo interpolación ${VAR} que Portainer inyecta al desplegar.
+# Ver DEPLOY.md para la lista completa y el paso a paso de cada método.
+
+x-django-env: &django-env
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+  DJANGO_DEBUG: ${DJANGO_DEBUG:-False}
+  DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
+  DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS}
+  GROQ_API_KEY: ${GROQ_API_KEY}
+  GEMINI_API_KEY: ${GEMINI_API_KEY}
+  # Fijos: siempre apuntan dentro de la red interna del stack, no dependen del entorno.
+  DJANGO_DB_PATH: /data/db.sqlite3
+  CELERY_BROKER_URL: redis://redis:6379/0
+  CELERY_RESULT_BACKEND: redis://redis:6379/1
 
 services:
   redis:
@@ -14,11 +32,8 @@ services:
   web:
     build: .
     restart: unless-stopped
-    env_file: .env.prod
     environment:
-      DJANGO_DB_PATH: /data/db.sqlite3
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      <<: *django-env
     volumes:
       - app-data:/data          # db.sqlite3 (+ WAL) persistente
       - media:/app/media        # imágenes subidas
@@ -32,11 +47,8 @@ services:
     build: .
     restart: unless-stopped
     command: ["celery", "-A", "webapp", "worker", "--pool=solo", "--concurrency=1", "-l", "info"]
-    env_file: .env.prod
     environment:
-      DJANGO_DB_PATH: /data/db.sqlite3
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      <<: *django-env
     volumes:
       - app-data:/data
       - media:/app/media
@@ -49,8 +61,9 @@ services:
     ports:
       - "80:80"
       - "443:443"
-    # Caddy lee {$DOMAIN} de su entorno; se lo inyectamos con el mismo .env.prod.
-    env_file: .env.prod
+    # Caddy lee {$DOMAIN} de su entorno.
+    environment:
+      DOMAIN: ${DOMAIN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - media:/srv/media:ro     # Caddy sirve /media/* directo (descarga a gunicorn)
