@@ -76,6 +76,8 @@ def _resize_image(path: str, max_px: int = 768) -> str:
 
 
 def _parse_json_response(text: str):
+    if not text:
+        raise ValueError(f"Respuesta de IA vacía (text={text!r})")
     clean = text.strip().replace('```json', '').replace('```', '').strip()
     return json.loads(clean)
 
@@ -115,11 +117,18 @@ async def _analizar_con_gemini(path: str):
             contents=[_PROMPT, pil_img],
             config={
                 # Limitar output igual que Groq (max_tokens=200). El JSON de
-                # respuesta ocupa ~150 tokens; 250 da margen sin desperdiciar.
-                "max_output_tokens": 250,
+                # respuesta ocupa ~150 tokens; 400 da margen extra por si
+                # el thinking_budget=0 no elimina del todo tokens internos.
+                "max_output_tokens": 400,
                 # Forzar JSON puro: evita que Gemini envuelva con ```json```
                 # y ahorra tokens de markdown en cada respuesta.
                 "response_mime_type": "application/json",
+                # gemini-2.5-flash piensa por defecto y esos tokens de
+                # razonamiento consumen el mismo presupuesto de
+                # max_output_tokens, dejando a veces la respuesta final
+                # vacía (response.text == "" o None). No se necesita
+                # razonamiento para esta extracción simple.
+                "thinking_config": {"thinking_budget": 0},
             },
         )
         return _aplicar_reglas(_parse_json_response(response.text))
