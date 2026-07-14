@@ -330,37 +330,69 @@ def reanudar_conciliacion(request, lote_id):
     return redirect("conciliaciones:lote_detalle", lote_id=lote.id)
 
 
-@login_required
-def eliminar_lote(request, lote_id):
-    """Borra una conciliación completa y revierte todo lo que confirmó:
+def _eliminar_lote_conciliacion(lote):
+    """Revierte lo que confirmó un lote y lo borra. Devuelve (n_revertidos, n_borrados).
+
     - Ítems OK cuyo comprobante fue creado manualmente para esta conciliación
       (origen=MANUAL, vía "Añadir y confirmar") → se borra el comprobante entero.
     - Ítems OK sobre un comprobante ya existente → se revierte a "sin confirmar"
       y se le quita la ruta asignada (no se toca su origen ni sus datos).
     Los ítems Duplicado no se tocan: no confirmaron ni reasignaron nada.
     """
+    items_ok = (lote.items.filter(resultado=Conciliacion.OK, comprobante__isnull=False)
+                .select_related("comprobante"))
+    n_revertidos = n_borrados = 0
+    for item in items_ok:
+        comp = item.comprobante
+        if comp.origen == Comprobante.ORIGEN_MANUAL:
+            comp.delete()
+            n_borrados += 1
+        else:
+            comp.estado = Comprobante.SIN_CONFIRMAR
+            comp.ruta = None
+            comp.save(update_fields=["estado", "ruta"])
+            n_revertidos += 1
+    lote.delete()  # cascada de Conciliacion + sus imágenes (señal post_delete)
+    return n_revertidos, n_borrados
+
+
+@login_required
+def eliminar_lote(request, lote_id):
     negocio = get_negocio(request.user)
     lote = get_object_or_404(LoteConciliacion, pk=lote_id, negocio=negocio)
     if request.method == "POST":
-        items_ok = (lote.items.filter(resultado=Conciliacion.OK, comprobante__isnull=False)
-                    .select_related("comprobante"))
-        n_revertidos = n_borrados = 0
-        for item in items_ok:
-            comp = item.comprobante
-            if comp.origen == Comprobante.ORIGEN_MANUAL:
-                comp.delete()
-                n_borrados += 1
-            else:
-                comp.estado = Comprobante.SIN_CONFIRMAR
-                comp.ruta = None
-                comp.save(update_fields=["estado", "ruta"])
-                n_revertidos += 1
-        lote.delete()  # cascada de Conciliacion + sus imágenes (señal post_delete)
+        n_revertidos, n_borrados = _eliminar_lote_conciliacion(lote)
         messages.success(
             request,
             f"Conciliación #{lote_id} eliminada. {n_revertidos} comprobante(s) revertido(s) a "
             f"sin confirmar y {n_borrados} comprobante(s) manual(es) eliminado(s)."
         )
+    return redirect("conciliaciones:lista")
+
+
+@login_required
+def eliminar_lotes_masivo(request):
+    """Elimina en masa varios lotes de conciliación completos (checkboxes en el historial)."""
+    negocio = get_negocio(request.user)
+    if not negocio or request.method != "POST":
+        return redirect("conciliaciones:lista")
+
+    ids = [i for i in request.POST.getlist("seleccion") if i.isdigit()]
+    lotes = list(LoteConciliacion.objects.filter(negocio=negocio, pk__in=ids))
+    n_revertidos = n_borrados = 0
+    for lote in lotes:
+        r, b = _eliminar_lote_conciliacion(lote)
+        n_revertidos += r
+        n_borrados += b
+
+    if lotes:
+        messages.success(
+            request,
+            f"{len(lotes)} conciliación(es) eliminada(s). {n_revertidos} comprobante(s) "
+            f"revertido(s) a sin confirmar y {n_borrados} comprobante(s) manual(es) eliminado(s)."
+        )
+    else:
+        messages.info(request, "No se seleccionó ninguna conciliación.")
     return redirect("conciliaciones:lista")
 
 

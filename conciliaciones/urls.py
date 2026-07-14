@@ -15,6 +15,7 @@ urlpatterns = [
     path("lote/<int:lote_id>/reanudar/", views.reanudar_conciliacion, name="reanudar_conciliacion"),
     path("lote/<int:lote_id>/reprocesar/", views.reprocesar_lote_conc, name="reprocesar_lote_conc"),
     path("lote/<int:lote_id>/eliminar/", views.eliminar_lote, name="eliminar_lote"),
+    path("lotes/eliminar-masivo/", views.eliminar_lotes_masivo, name="eliminar_lotes_masivo"),
     path("item/<int:pk>/confirmar/", views.confirmar_pendiente, name="confirmar_pendiente"),
     path("item/<int:pk>/ajustar/", views.ajustar_item, name="ajustar_item"),
     path("item/<int:pk>/agregar-confirmar/", views.agregar_confirmar, name="agregar_confirmar"),
