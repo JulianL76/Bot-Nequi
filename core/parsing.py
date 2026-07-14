@@ -58,6 +58,22 @@ def numeros_coinciden(a, b) -> bool:
     return da[-10:] == db[-10:]
 
 
+def refs_coinciden(ref_voucher, ref_comprobante) -> bool:
+    """Compara el APRO de un voucher de corresponsal (~6 dígitos) contra la
+    referencia del comprobante Nequi correspondiente (empieza en "S", más larga).
+
+    Los corresponsales (Redeban/Wompi) no emiten una referencia propia: su
+    número de APROBACIÓN son los últimos 6 dígitos de la referencia Nequi real.
+    Coinciden si esos últimos 6 dígitos son iguales. Requiere al menos 6 dígitos
+    en ambos.
+    """
+    dv = re.sub(r"\D", "", str(ref_voucher or ""))
+    dc = re.sub(r"\D", "", str(ref_comprobante or ""))
+    if len(dv) < 6 or len(dc) < 6:
+        return False
+    return dv[-6:] == dc[-6:]
+
+
 def parse_fecha(fecha_str):
     """Convierte la fecha de texto de la IA a `datetime.date`, o None.
 

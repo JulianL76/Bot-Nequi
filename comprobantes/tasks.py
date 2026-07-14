@@ -23,9 +23,12 @@ from .notifications import notificar_inapp, notificar_telegram
 
 logger = logging.getLogger(__name__)
 
-# Segundos entre imágenes (respeta el límite ~30/min de Groq). Configurable por
-# entorno: 0 = sin pausa (más rápido, riesgo de 429), 2 = ~30/min.
-PAUSA_ENTRE_IMAGENES = float(os.getenv("PAUSA_ENTRE_IMAGENES", "2"))
+# Pausa mínima de cortesía entre imágenes. El límite real de Groq (30 RPM) ya
+# lo respeta el throttle interno de _analizar_con_groq (core/extraction.py),
+# y Gemini en tier pago soporta muchas más RPM de las que este flujo genera,
+# así que esta pausa NO es lo que evita los 429 — solo evita ráfagas bruscas.
+# Configurable por entorno si hace falta ajustarla.
+PAUSA_ENTRE_IMAGENES = float(os.getenv("PAUSA_ENTRE_IMAGENES", "0.3"))
 PAUSA_ENTRE_LOTES = 2     # segundos entre chunks (suaviza el RPM)
 BACKOFF_429 = 65          # segundos de espera ante un 429 antes de reintentar
 

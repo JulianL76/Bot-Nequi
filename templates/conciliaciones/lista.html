@@ -2,8 +2,9 @@
 {% block title %}Conciliaciones{% endblock %}
 {% block header %}Conciliaciones{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-3">
+<div class="flex items-center justify-between mb-3 gap-2">
   <h1 class="text-xl font-bold hidden lg:block">Historial de conciliaciones</h1>
+  <a href="{% url 'conciliaciones:panel' %}" class="text-sm text-violet-600 hover:underline whitespace-nowrap">Ver panel global →</a>
   <a href="{% url 'conciliaciones:conciliar' %}" class="inline-flex items-center gap-1.5 bg-violet-600 text-white px-4 py-2.5 rounded-xl ml-auto"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> Conciliar</a>
 </div>
 

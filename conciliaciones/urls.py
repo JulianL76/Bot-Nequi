@@ -7,6 +7,8 @@ app_name = "conciliaciones"
 urlpatterns = [
     path("", views.conciliar, name="conciliar"),
     path("historial/", views.lista, name="lista"),
+    path("panel/", views.panel, name="panel"),
+    path("panel/exportar/", views.exportar_panel, name="exportar_panel"),
     path("lote/<int:lote_id>/", views.lote_detalle, name="lote_detalle"),
     path("lote/<int:lote_id>/progreso/", views.lote_progreso, name="lote_progreso"),
     path("lote/<int:lote_id>/pausar/", views.pausar_conciliacion, name="pausar_conciliacion"),
@@ -19,4 +21,5 @@ urlpatterns = [
     path("item/<int:pk>/reprocesar/", views.reprocesar_item, name="reprocesar_item"),
     path("item/<int:pk>/eliminar/", views.eliminar_item, name="eliminar_item"),
     path("item/<int:pk>/observacion/", views.guardar_observacion, name="guardar_observacion"),
+    path("items/eliminar-masivo/", views.eliminar_items_masivo, name="eliminar_items_masivo"),
 ]

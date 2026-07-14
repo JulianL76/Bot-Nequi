@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% load formato %}
+{% block title %}Panel de conciliaciones{% endblock %}
+{% block header %}Panel de conciliaciones{% endblock %}
+{% block content %}
+{% with qp="desde="|add:desde|add:"&hasta="|add:hasta|add:"&tam="|add:tam|add:"&sort="|add:sort %}
+
+<div class="flex items-center justify-between mb-4">
+  <p class="text-slate-500">Todos los ítems de conciliación del negocio, de cualquier lote o ruta.</p>
+  <a href="{% url 'conciliaciones:lista' %}" class="text-sm text-violet-600 hover:underline whitespace-nowrap">Ver historial de lotes →</a>
+</div>
+
+<!-- Tarjetas de resumen (sobre TODO lo filtrado, no solo la página actual) -->
+<div class="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm mb-6 grid grid-cols-3 md:grid-cols-7 gap-3 text-center">
+  <div><div class="text-2xl font-bold nums">{{ stats.total }}</div><div class="text-xs text-slate-500">Total</div></div>
+  <div><div class="text-2xl font-bold text-emerald-600 nums">{{ stats.ok }}</div><div class="text-xs text-slate-500">OK</div></div>
+  <div><div class="text-2xl font-bold text-amber-600 nums">{{ stats.pendiente }}</div><div class="text-xs text-slate-500">Pendientes</div></div>
+  <div><div class="text-2xl font-bold text-rose-600 nums">{{ stats.no_esta }}</div><div class="text-xs text-slate-500">No está</div></div>
+  <div><div class="text-2xl font-bold text-orange-500 nums">{{ stats.revision }}</div><div class="text-xs text-slate-500">Revisión</div></div>
+  <div><div class="text-2xl font-bold text-pink-600 nums">{{ stats.duplicado }}</div><div class="text-xs text-slate-500">Duplicados</div></div>
+  <div title="Comprobantes creados a mano vía 'Agregar y confirmar' cuando un ítem no encontraba comprobante">
+    <div class="text-2xl font-bold text-violet-600 nums">{{ stats.manuales }}</div><div class="text-xs text-slate-500">Creados manual</div>
+  </div>
+</div>
+
+<!-- Filtros: resultado + rango de fechas + orden + tamaño de página -->
+<div class="flex flex-wrap items-center gap-2 mb-3 text-sm">
+  {% url 'conciliaciones:panel' as base_url %}
+  <a href="{{ base_url }}?{{ qp }}" class="px-3 py-1.5 rounded-full border {% if not r %}bg-primary-600 text-white border-primary-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300{% endif %}">Todos</a>
+  <a href="{{ base_url }}?{{ qp }}&r=ok" class="px-3 py-1.5 rounded-full border {% if r == 'ok' %}bg-emerald-600 text-white border-emerald-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-emerald-600 dark:text-emerald-400{% endif %}">OK ({{ stats.ok }})</a>
+  <a href="{{ base_url }}?{{ qp }}&r=pendiente" class="px-3 py-1.5 rounded-full border {% if r == 'pendiente' %}bg-amber-600 text-white border-amber-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-amber-600 dark:text-amber-400{% endif %}">Pendientes ({{ stats.pendiente }})</a>
+  <a href="{{ base_url }}?{{ qp }}&r=no_esta" class="px-3 py-1.5 rounded-full border {% if r == 'no_esta' %}bg-rose-600 text-white border-rose-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-rose-600 dark:text-rose-400{% endif %}">No está ({{ stats.no_esta }})</a>
+  <a href="{{ base_url }}?{{ qp }}&r=revision" class="px-3 py-1.5 rounded-full border {% if r == 'revision' %}bg-orange-600 text-white border-orange-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-orange-600 dark:text-orange-400{% endif %}">Revisión ({{ stats.revision }})</a>
+  <a href="{{ base_url }}?{{ qp }}&r=duplicado" class="px-3 py-1.5 rounded-full border {% if r == 'duplicado' %}bg-pink-600 text-white border-pink-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-pink-600 dark:text-pink-400{% endif %}">Duplicados ({{ stats.duplicado }})</a>
+  <a href="{{ base_url }}?{{ qp }}&r=obs" class="px-3 py-1.5 rounded-full border {% if r == 'obs' %}bg-amber-500 text-white border-amber-500{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-amber-600 dark:text-amber-400{% endif %}">Con observación</a>
+  <label class="flex items-center gap-1.5 text-slate-500 ml-2"><input type="checkbox" class="check-all w-4 h-4" data-target="[data-layout='panel-items']"> Seleccionar todos</label>
+</div>
+
+<form method="get" class="flex flex-wrap items-end gap-2 mb-3 text-sm">
+  {% if r %}<input type="hidden" name="r" value="{{ r }}">{% endif %}
+  <div>
+    <label class="block text-xs text-slate-500 mb-1">Desde</label>
+    <input type="date" name="desde" value="{{ desde }}" class="px-3 py-2 border rounded-lg bg-white dark:bg-slate-700 dark:border-slate-600">
+  </div>
+  <div>
+    <label class="block text-xs text-slate-500 mb-1">Hasta</label>
+    <input type="date" name="hasta" value="{{ hasta }}" class="px-3 py-2 border rounded-lg bg-white dark:bg-slate-700 dark:border-slate-600">
+  </div>
+  <button class="btn btn-neutral">Filtrar</button>
+  {% if desde or hasta %}<a href="{{ base_url }}?r={{ r }}&tam={{ tam }}&sort={{ sort }}" class="btn btn-ghost btn-sm">Limpiar fechas</a>{% endif %}
+
+  <div class="ml-auto flex items-end gap-2">
+    <div>
+      <label class="block text-xs text-slate-500 mb-1">Orden</label>
+      <select name="sort" onchange="this.form.submit()" class="px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+        <option value="" {% if not sort %}selected{% endif %}>Más reciente</option>
+        <option value="-valor" {% if sort == '-valor' %}selected{% endif %}>Valor (mayor)</option>
+        <option value="valor" {% if sort == 'valor' %}selected{% endif %}>Valor (menor)</option>
+        <option value="fecha_dt" {% if sort == 'fecha_dt' %}selected{% endif %}>Fecha (ascendente)</option>
+        <option value="-fecha_dt" {% if sort == '-fecha_dt' %}selected{% endif %}>Fecha (descendente)</option>
+        <option value="hora" {% if sort == 'hora' %}selected{% endif %}>Hora</option>
+        <option value="ref" {% if sort == 'ref' %}selected{% endif %}>Referencia</option>
+        <option value="resultado" {% if sort == 'resultado' %}selected{% endif %}>Resultado</option>
+        <option value="para" {% if sort == 'para' %}selected{% endif %}>Destinatario</option>
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs text-slate-500 mb-1">Por página</label>
+      <select name="tam" onchange="this.form.submit()" class="px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+        <option value="20" {% if tam == '20' %}selected{% endif %}>20</option>
+        <option value="50" {% if tam == '50' %}selected{% endif %}>50</option>
+        <option value="100" {% if tam == '100' %}selected{% endif %}>100</option>
+        <option value="200" {% if tam == '200' %}selected{% endif %}>200</option>
+      </select>
+    </div>
+  </div>
+</form>
+
+<!-- Exportar -->
+<div x-data="{ openExport: false }" class="mb-3">
+  <button type="button" @click="openExport = true" class="btn btn-sm btn-outline">
+    <svg class="w-4 h-4 text-emerald-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><path d="M14 2v6h6"/><path d="M8 13h2"/><path d="M8 17h2"/><path d="M14 13h2"/><path d="M14 17h2"/></svg>
+    Exportar Excel
+  </button>
+
+  <div x-show="openExport" x-cloak @click="openExport = false" @keydown.escape.window="openExport = false"
+       class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="modal-box w-full max-w-md" @click.stop>
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-lg font-bold">Exportar a Excel</h3>
+        <button type="button" @click="openExport = false" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+      </div>
+      <form method="get" action="{% url 'conciliaciones:exportar_panel' %}" hx-boost="false" class="space-y-4">
+        {% if r %}<input type="hidden" name="r" value="{{ r }}">{% endif %}
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium mb-1">Desde</label>
+            <input type="date" name="desde" value="{{ desde }}" class="w-full px-3 py-2 border rounded-lg bg-white dark:bg-slate-700">
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">Hasta</label>
+            <input type="date" name="hasta" value="{{ hasta }}" class="w-full px-3 py-2 border rounded-lg bg-white dark:bg-slate-700">
+          </div>
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-sm font-medium">Rutas</label>
+            <label class="text-xs text-violet-600 cursor-pointer"><input type="checkbox" id="ruta-todas" class="align-middle mr-1">Todas</label>
+          </div>
+          <div class="max-h-40 overflow-y-auto border rounded-lg p-2 space-y-1 bg-white dark:bg-slate-700">
+            {% for ru in rutas %}
+            <label class="flex items-center gap-2 text-sm px-1 py-0.5 rounded hover:bg-slate-50 dark:hover:bg-slate-600 cursor-pointer">
+              <input type="checkbox" name="ruta" value="{{ ru.id }}" class="ruta-chk w-4 h-4"> Ruta {{ ru.numero }}{% if ru.nombre %} — {{ ru.nombre }}{% endif %}
+            </label>
+            {% empty %}
+            <div class="text-xs text-slate-400 px-1">No hay rutas activas.</div>
+            {% endfor %}
+            <label class="flex items-center gap-2 text-sm px-1 py-0.5 rounded hover:bg-slate-50 dark:hover:bg-slate-600 cursor-pointer border-t border-slate-100 dark:border-slate-600 pt-1 mt-1">
+              <input type="checkbox" name="ruta" value="sin" class="ruta-chk w-4 h-4"> Sin ruta asignada
+            </label>
+          </div>
+          <p class="text-xs text-slate-400 mt-1">Sin marcar ninguna = todas las rutas.</p>
+        </div>
+        <p class="text-xs text-slate-500">Deja las fechas vacías para exportar todo. Se respeta también el filtro de resultado actual ({% if r %}"{{ r }}"{% else %}todos{% endif %}).</p>
+        <div class="flex justify-end gap-2 pt-1">
+          <button type="button" @click="openExport = false" class="btn btn-ghost">Cancelar</button>
+          <button class="btn btn-success">
+            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+            Descargar
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Listado -->
+<div class="space-y-3" data-layout="panel-items">
+{% for it in page %}
+  <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
+    <div class="flex items-center gap-3">
+      <input type="checkbox" class="row-check w-4 h-4 shrink-0" name="seleccion" value="{{ it.id }}" form="bulk-del-form">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="font-semibold">{{ it.ref|default:"—" }}</span>
+          {% if it.resultado == 'ok' %}
+            <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">OK</span>
+          {% elif it.resultado == 'pendiente' %}
+            <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Pendiente</span>
+          {% elif it.resultado == 'no_esta' %}
+            <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">No está</span>
+          {% elif it.resultado == 'revision' %}
+            <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">Revisión manual</span>
+          {% elif it.resultado == 'duplicado' %}
+            <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-pink-100 text-pink-700">Duplicado</span>
+          {% else %}
+            <span class="text-xs px-2 py-0.5 rounded-full bg-slate-200">…</span>
+          {% endif %}
+          {% if it.comprobante.origen == 'manual' %}<span class="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 uppercase">Manual</span>{% endif %}
+        </div>
+        <div class="text-sm text-slate-500 mt-1">
+          <span class="nums">{{ it.valor|pesos }}</span> · {{ it.fecha|default:"—" }}{% if it.hora %} · <span class="nums">{{ it.hora|hora24 }}</span>{% endif %}
+          {% if it.para %}· Para: {{ it.para }}{% endif %}
+        </div>
+      </div>
+      <div class="text-right text-sm shrink-0">
+        <a href="{% url 'conciliaciones:lote_detalle' it.lote_id %}#conc-item-{{ it.id }}" class="text-violet-600 hover:underline">Lote #{{ it.lote_id }}</a>
+        {% if it.ruta %}<div class="text-xs text-slate-400 mt-0.5">Ruta {{ it.ruta.numero }}</div>{% endif %}
+      </div>
+    </div>
+  </div>
+{% empty %}
+  <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-10 text-center text-slate-400">No hay ítems con ese filtro.</div>
+{% endfor %}
+</div>
+
+{% if page.has_other_pages %}
+<div class="mt-4 flex gap-2 items-center justify-center">
+  {% if page.has_previous %}<a href="?{{ qp }}&r={{ r }}&page={{ page.previous_page_number }}" class="px-4 py-2 bg-white dark:bg-slate-800 rounded-xl shadow inline-flex items-center" aria-label="Anterior"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></a>{% endif %}
+  <span class="text-sm nums">{{ page.number }} / {{ page.paginator.num_pages }}</span>
+  {% if page.has_next %}<a href="?{{ qp }}&r={{ r }}&page={{ page.next_page_number }}" class="px-4 py-2 bg-white dark:bg-slate-800 rounded-xl shadow inline-flex items-center" aria-label="Siguiente"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></a>{% endif %}
+</div>
+{% endif %}
+
+<!-- Barra de borrado masivo (aparece al marcar checkboxes; las casillas de cada
+     ítem viven fuera de este <form> y se asocian con form="bulk-del-form"). Al
+     volver, se preservan los filtros/página activos (sin volver_lote → panel). -->
+<form id="bulk-del-form" method="post" action="{% url 'conciliaciones:eliminar_items_masivo' %}"
+      onsubmit="return confirm('¿Eliminar los registros seleccionados? Pueden ser de distintos lotes.')"
+      class="hidden fixed bottom-16 lg:bottom-0 inset-x-0 z-30 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 p-3 items-center gap-3 shadow-2xl">
+  {% csrf_token %}
+  <input type="hidden" name="r" value="{{ r }}">
+  <input type="hidden" name="desde" value="{{ desde }}">
+  <input type="hidden" name="hasta" value="{{ hasta }}">
+  <input type="hidden" name="tam" value="{{ tam }}">
+  <input type="hidden" name="sort" value="{{ sort }}">
+  <input type="hidden" name="page" value="{{ page.number }}">
+  <span class="text-sm font-medium"><span id="sel-count-panel">0</span> seleccionado(s)</span>
+  <button class="btn btn-sm btn-error ml-auto">Eliminar seleccionados</button>
+</form>
+
+<script>
+  // IIFE: evita colisiones de variables globales al re-ejecutarse con hx-boost.
+  (function () {
+    const todas = document.getElementById('ruta-todas');
+    if (todas) {
+      todas.addEventListener('change', () => {
+        document.querySelectorAll('.ruta-chk').forEach(chk => { chk.checked = todas.checked; });
+      });
+    }
+
+    // Selección masiva: la barra/form vive fuera de la lista; las casillas se
+    // asocian por atributo form="bulk-del-form" (evita anidar <form>s).
+    const bar = document.getElementById('bulk-del-form');
+    function refrescarSel() {
+      const n = [...document.querySelectorAll('.row-check')].filter(c => c.checked).length;
+      document.getElementById('sel-count-panel').textContent = n;
+      bar.classList.toggle('hidden', n === 0);
+      bar.classList.toggle('flex', n > 0);
+    }
+    document.querySelectorAll('.check-all').forEach(ca => ca.addEventListener('change', () => {
+      document.querySelectorAll('.row-check').forEach(c => c.checked = ca.checked);
+      refrescarSel();
+    }));
+    document.querySelectorAll('.row-check').forEach(c => c.addEventListener('change', refrescarSel));
+  })();
+</script>
+{% endwith %}
+{% endblock %}

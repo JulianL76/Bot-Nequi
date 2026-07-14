@@ -19,7 +19,8 @@ from comprobantes.models import Comprobante
 from comprobantes.notifications import notificar_inapp, notificar_telegram
 from comprobantes.tasks import BACKOFF_429, PAUSA_ENTRE_IMAGENES, PAUSA_ENTRE_LOTES, _chunks
 from core.extraction import analizar_comprobante_sync
-from core.parsing import limpiar_monto, nombres_coinciden, numeros_coinciden, parse_fecha, parse_hora
+from core.parsing import (limpiar_monto, nombres_coinciden, numeros_coinciden,
+                           parse_fecha, parse_hora, refs_coinciden)
 from django.conf import settings
 
 from .models import Conciliacion, LoteConciliacion
@@ -37,8 +38,9 @@ def _marcar_revision(item: Conciliacion, motivo: str) -> str:
 def _comp_candidato(item: Conciliacion):
     """Devuelve el Comprobante candidato (sin confirmar) según el tipo del item.
 
-    - voucher → por monto + fecha + HORA (para no confundir pagos del mismo monto/día).
-    - nequi   → por referencia (mismo día).
+    - nequi con ref reconocible (empieza por "M" o "S") → por esa referencia (mismo día).
+    - voucher, o nequi sin ref reconocible (se da por no encontrada) → por
+      monto + fecha + HORA (para no confundir pagos del mismo monto/día).
     """
     base = Comprobante.objects.filter(negocio=item.negocio)
     if item.fecha_dt:
@@ -47,21 +49,25 @@ def _comp_candidato(item: Conciliacion):
     # Preferir el original (es_duplicado=False) y, dentro, el más antiguo.
     orden = ("es_duplicado", "creado_en", "id")
 
+    ref = (item.ref or "").strip()
+    ref_reconocible = ref.upper().startswith(("M", "S"))
+
+    if item.tipo == Conciliacion.TIPO_NEQUI and ref and ref.lower() != "no encontrada" and ref_reconocible:
+        return base.filter(ref=ref).order_by(*orden).first()
+
+    # Voucher, o Nequi con una referencia que no empieza por M/S (no es una
+    # referencia Nequi reconocible, se da por no encontrada): monto+fecha+hora.
+    qs = base.filter(valor=item.valor)
     if item.tipo == Conciliacion.TIPO_VOUCHER:
         # Un voucher (corresponsal) NO debe casar con una transferencia Nequi:
         # esas tienen referencia que empieza por "M". Se excluyen para no robarles
         # su comprobante a los ítems Nequi.
-        qs = base.filter(valor=item.valor).exclude(ref__istartswith="M")
-        # La hora distingue pagos iguales del mismo día; debe coincidir.
-        t = parse_hora(item.hora)
-        if t:
-            qs = qs.filter(hora=t.strftime("%H:%M"))
-        return qs.order_by(*orden).first()
-
-    ref = (item.ref or "").strip()
-    if ref and ref != "No encontrada":
-        return base.filter(ref=ref).order_by(*orden).first()
-    return None
+        qs = qs.exclude(ref__istartswith="M")
+    # La hora distingue pagos iguales del mismo día; debe coincidir.
+    t = parse_hora(item.hora)
+    if t:
+        qs = qs.filter(hora=t.strftime("%H:%M"))
+    return qs.order_by(*orden).first()
 
 
 def _detectar_duplicado(item: Conciliacion, comp: Comprobante) -> str:
@@ -132,6 +138,18 @@ def validar_y_emparejar(item: Conciliacion, lote: LoteConciliacion) -> str:
         item.resultado = Conciliacion.PENDIENTE
         item.save()
         return "pendiente"
+
+    # Voucher: si se pudo leer el APRO (nunca trae letras, son solo los
+    # últimos 6 dígitos de la referencia Nequi real), debe coincidir con los
+    # últimos 6 dígitos de la referencia del candidato (monto+hora iguales no
+    # bastan para confirmar si el APRO no cuadra con esa referencia).
+    ref_voucher = (item.ref or "").strip()
+    if (tipo == Conciliacion.TIPO_VOUCHER and ref_voucher
+            and ref_voucher.lower() != "no encontrada"
+            and not refs_coinciden(ref_voucher, comp.ref)):
+        return _marcar_revision(
+            item, f"El APRO ({ref_voucher}) no coincide con la referencia del "
+                  f"comprobante candidato ({comp.ref})")
 
     # 4. Duplicado (mismo pago ya conciliado aquí o en otra ruta).
     aviso = _detectar_duplicado(item, comp)

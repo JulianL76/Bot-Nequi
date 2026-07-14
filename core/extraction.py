@@ -58,12 +58,20 @@ _PROMPT = ('JSON solo, sin texto extra:\n'
            '(Redeban/Wompi/recarga) el "TITULAR".\n'
            '"num": el número Nequi de destino (p. ej. "Número Nequi 300 594 1334" o "RECARGA NEQU" '
            'al número 3005941334); solo dígitos.\n'
+           '"ref": en voucher de corresponsal (Redeban/Wompi) es el número de '
+           'APROBACIÓN (etiqueta "APRO" o "Aprobación"), normalmente 6 dígitos — '
+           'NO uses RRN, RECIBO, C.UNICO, TER ni el número Producto/Nequi, son '
+           'otros campos del mismo recibo. En comprobante Nequi es el número de '
+           'referencia/autorización (suele empezar por una letra, p. ej. "S...", "M...").\n'
+           'Transcribe cada dígito exactamente como aparece, sin redondear ni adivinar; '
+           'no agregues ni quites dígitos. Si algún dígito no es legible con certeza, '
+           'usa "No encontrada" en vez de adivinar.\n'
            '"tipo": "voucher" si es tirilla de corresponsal fisico (Redeban, Wompi, "RECARGA NEQU"); '
            '"nequi" si es comprobante/transferencia Nequi; "otro" si no se reconoce.\n'
            'Dato ausente: "No encontrada".')
 
 
-def _resize_image(path: str, max_px: int = 768) -> str:
+def _resize_image(path: str, max_px: int = 1024) -> str:
     with Image.open(path) as img:
         img = img.convert("RGB")
         w, h = img.size
@@ -96,7 +104,7 @@ def _aplicar_reglas(datos: dict) -> dict:
     return datos
 
 
-def _resize_image_pil(path: str, max_px: int = 768) -> "Image.Image":
+def _resize_image_pil(path: str, max_px: int = 1024) -> "Image.Image":
     """Igual que _resize_image pero devuelve un PIL Image (para Gemini)."""
     with Image.open(path) as img:
         img = img.convert("RGB")
@@ -109,9 +117,11 @@ def _resize_image_pil(path: str, max_px: int = 768) -> "Image.Image":
 
 async def _analizar_con_gemini(path: str):
     def _call():
-        # Imagen redimensionada a 768 px para reducir tokens (igual que Groq).
-        # Una pantalla de celular típica (1080×2340) pasa de ~2800 tokens a ~260.
-        pil_img = _resize_image_pil(path, max_px=768)
+        # Imagen redimensionada a 1024 px (igual que Groq): balance entre tokens
+        # y legibilidad del número de referencia (texto pequeño en el recibo).
+        # 768px dejaba dígitos ambiguos y causaba referencias con un dígito de
+        # más o de menos; 1024 da más margen sin disparar demasiado el costo.
+        pil_img = _resize_image_pil(path, max_px=1024)
         response = gemini_client.models.generate_content(
             model=config.GEMINI_MODEL,
             contents=[_PROMPT, pil_img],

@@ -2,14 +2,100 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db.models import Count, Q
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 
 from accounts.utils import get_negocio
 from comprobantes.models import Comprobante, Ruta
 
 from .models import Conciliacion, LoteConciliacion
 from .tasks import emparejar_item, procesar_conciliacion
+
+# Tamaños de página permitidos en el panel global (evita castear un valor
+# arbitrario del usuario directo a int() para Paginator).
+PANEL_TAM_PAGINA = {"20", "50", "100", "200"}
+
+
+def _excel_conciliaciones(qs, filename="conciliaciones.xlsx"):
+    """Genera una respuesta Excel a partir de un queryset de Conciliacion."""
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Conciliaciones"
+    ws.append(["De", "Para", "Valor", "Referencia", "Fecha", "Hora", "Tipo",
+               "Resultado", "Lote", "Ruta", "Observaciones"])
+    for it in qs:
+        ws.append([
+            it.de, it.para, float(it.valor), it.ref, it.fecha, it.hora,
+            it.get_tipo_display() if it.tipo else "",
+            it.get_resultado_display() if it.resultado else "",
+            it.lote_id, it.ruta.numero if it.ruta else "", it.observaciones,
+        ])
+    response = HttpResponse(
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    response["Content-Disposition"] = f"attachment; filename={filename}"
+    wb.save(response)
+    return response
+
+
+def _filtrar_conciliaciones(request, negocio):
+    """Aplica los filtros (r/desde/hasta/ruta) y devuelve (queryset, contexto).
+
+    Compartido por el panel paginado y la exportación a Excel para que ambos
+    respeten exactamente los mismos filtros.
+    """
+    import datetime
+
+    qs = (Conciliacion.objects.filter(negocio=negocio)
+          .select_related("lote", "lote__ruta", "ruta", "comprobante")
+          if negocio else Conciliacion.objects.none())
+
+    # Resultado (mismo criterio que lote_detalle: "obs" = con observaciones).
+    r = request.GET.get("r", "").strip()
+    validos = {Conciliacion.OK, Conciliacion.PENDIENTE, Conciliacion.NO_ESTA,
+               Conciliacion.REVISION, Conciliacion.DUPLICADO}
+    if r in validos:
+        qs = qs.filter(resultado=r)
+    elif r == "obs":
+        qs = qs.exclude(observaciones="")
+
+    # Rango de fechas sobre fecha_dt (si vienen invertidas, se intercambian).
+    desde = request.GET.get("desde", "").strip()
+    hasta = request.GET.get("hasta", "").strip()
+    desde_obj = hasta_obj = None
+    try:
+        if desde:
+            desde_obj = datetime.datetime.strptime(desde, "%Y-%m-%d").date()
+        if hasta:
+            hasta_obj = datetime.datetime.strptime(hasta, "%Y-%m-%d").date()
+    except ValueError:
+        pass
+    if desde_obj and hasta_obj and desde_obj > hasta_obj:
+        desde_obj, hasta_obj = hasta_obj, desde_obj
+        desde, hasta = hasta, desde
+    if desde_obj:
+        qs = qs.filter(fecha_dt__gte=desde_obj)
+    if hasta_obj:
+        qs = qs.filter(fecha_dt__lte=hasta_obj)
+
+    # Ruta propia del ítem (admite varias y/o "sin" para sin ruta asignada).
+    rutas_sel = request.GET.getlist("ruta")
+    ids = [x for x in rutas_sel if x.isdigit()]
+    incluir_sin = "sin" in rutas_sel
+    if ids or incluir_sin:
+        cond = Q()
+        if ids:
+            cond |= Q(ruta_id__in=ids)
+        if incluir_sin:
+            cond |= Q(ruta__isnull=True)
+        qs = qs.filter(cond)
+
+    ctx = {"r": r, "desde": desde, "hasta": hasta, "desde_obj": desde_obj,
+           "hasta_obj": hasta_obj, "ruta_sel": ids, "ruta_sin": incluir_sin}
+    return qs, ctx
 
 
 def _volver_detalle(lote_id, r, sort=""):
@@ -47,6 +133,64 @@ def lista(request):
     paginator = Paginator(qs, 20)
     page = paginator.get_page(request.GET.get("page"))
     return render(request, "conciliaciones/lista.html", {"page": page})
+
+
+@login_required
+def panel(request):
+    """Panel global: ítems de conciliación de TODOS los lotes/rutas del negocio.
+
+    Permite filtrar por resultado (p. ej. solo pendientes) y rango de fechas,
+    exportar lo filtrado a Excel, y paginar con un tamaño configurable.
+    """
+    negocio = get_negocio(request.user)
+    if not negocio:
+        messages.error(request, "Tu usuario no tiene un negocio asignado.")
+        return redirect("dashboard:home")
+
+    qs, ctx = _filtrar_conciliaciones(request, negocio)
+
+    # Stats sobre TODO lo filtrado (no solo la página actual).
+    stats = qs.aggregate(
+        total=Count("id"),
+        ok=Count("id", filter=Q(resultado=Conciliacion.OK)),
+        pendiente=Count("id", filter=Q(resultado=Conciliacion.PENDIENTE)),
+        no_esta=Count("id", filter=Q(resultado=Conciliacion.NO_ESTA)),
+        revision=Count("id", filter=Q(resultado=Conciliacion.REVISION)),
+        duplicado=Count("id", filter=Q(resultado=Conciliacion.DUPLICADO)),
+    )
+    stats["manuales"] = qs.filter(comprobante__origen=Comprobante.ORIGEN_MANUAL).count()
+
+    # Ordenamiento (mismo whitelist que lote_detalle).
+    sort = request.GET.get("sort", "").strip()
+    base = sort[1:] if sort.startswith("-") else sort
+    if base in {"valor", "fecha_dt", "hora", "ref", "resultado", "para"}:
+        pagina_qs = qs.order_by(sort, "id")
+    else:
+        pagina_qs = qs.order_by("-fecha_dt", "-hora", "-id")
+        sort = ""
+
+    tam = request.GET.get("tam", "").strip()
+    if tam not in PANEL_TAM_PAGINA:
+        tam = "50"
+    paginator = Paginator(pagina_qs, int(tam))
+    page = paginator.get_page(request.GET.get("page"))
+
+    rutas = Ruta.objects.filter(negocio=negocio, activa=True)
+    return render(request, "conciliaciones/panel.html",
+                  {"page": page, "stats": stats, "sort": sort, "tam": tam,
+                   "rutas": rutas, **ctx})
+
+
+@login_required
+def exportar_panel(request):
+    """Exporta a Excel el panel global según los filtros activos (r/fechas/ruta)."""
+    negocio = get_negocio(request.user)
+    if not negocio:
+        messages.error(request, "Tu usuario no tiene un negocio asignado.")
+        return redirect("dashboard:home")
+
+    qs, _ = _filtrar_conciliaciones(request, negocio)
+    return _excel_conciliaciones(qs.order_by("-fecha_dt", "-hora", "-id"), "conciliaciones.xlsx")
 
 
 @login_required
@@ -328,6 +472,53 @@ def eliminar_item(request, pk):
         _recontar_lote(lote)
         messages.success(request, "Registro eliminado de la conciliación.")
     return _volver_detalle(lote.id, r, sort)
+
+
+@login_required
+def eliminar_items_masivo(request):
+    """Elimina en masa varios ítems de conciliación (checkboxes).
+
+    Se usa desde el detalle de un lote (todos los ítems son del mismo lote)
+    y desde el panel global (los ítems pueden pertenecer a lotes distintos):
+    recalcula los contadores de CADA lote afectado.
+    """
+    negocio = get_negocio(request.user)
+    if not negocio or request.method != "POST":
+        return redirect("conciliaciones:panel")
+
+    ids = [i for i in request.POST.getlist("seleccion") if i.isdigit()]
+    items = Conciliacion.objects.filter(negocio=negocio, id__in=ids)
+    lote_ids = list(items.values_list("lote_id", flat=True).distinct())
+    n = items.count()
+    items.delete()  # dispara, por instancia, la señal que borra cada imagen
+
+    for lote in LoteConciliacion.objects.filter(pk__in=lote_ids):
+        lote.total = lote.items.count()
+        lote.procesadas = lote.items.exclude(resultado__isnull=True).count()
+        lote.save(update_fields=["total", "procesadas"])
+        _recontar_lote(lote)
+
+    if n:
+        messages.success(request, f"{n} registro(s) eliminado(s) de la conciliación.")
+    else:
+        messages.info(request, "No se seleccionó ningún registro.")
+
+    r = request.POST.get("r", "").strip()
+    sort = request.POST.get("sort", "").strip()
+    volver_lote = request.POST.get("volver_lote", "").strip()
+    if volver_lote.isdigit():
+        return _volver_detalle(int(volver_lote), r, sort)
+
+    # Volver al panel global preservando los filtros activos.
+    params = []
+    for key in ("r", "desde", "hasta", "tam", "sort", "page"):
+        val = request.POST.get(key, "").strip()
+        if val:
+            params.append(f"{key}={val}")
+    url = reverse("conciliaciones:panel")
+    if params:
+        url += "?" + "&".join(params)
+    return redirect(url)
 
 
 @login_required

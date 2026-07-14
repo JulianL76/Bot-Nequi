@@ -105,6 +105,8 @@
   </a>
   {% endif %}
 
+  <label class="flex items-center gap-1.5 text-slate-500"><input type="checkbox" class="check-all w-4 h-4" data-target="[data-layout='conc-items']"> Todos</label>
+
   <form method="get" class="ml-auto flex items-center gap-1">
     {% if filtro_r %}<input type="hidden" name="r" value="{{ filtro_r }}">{% endif %}
     <label class="text-slate-500">Ordenar:</label>
@@ -122,10 +124,11 @@
   </form>
 </div>
 
-<div class="space-y-3">
+<div class="space-y-3" data-layout="conc-items">
 {% for it in items %}
   <div id="conc-item-{{ it.id }}" class="bg-white rounded-2xl shadow-sm p-4 scroll-mt-24" x-data="{ obsOpen: false }">
     <div class="flex items-center gap-3">
+    <input type="checkbox" class="row-check w-4 h-4 shrink-0" name="seleccion" value="{{ it.id }}" form="bulk-del-form">
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-2">
         <span class="font-semibold">{{ it.ref|default:"—" }}</span>
@@ -214,8 +217,36 @@
 {% endfor %}
 </div>
 
+<!-- Barra de borrado masivo (aparece al marcar checkboxes; las casillas de cada
+     ítem viven fuera de este <form> y se asocian con form="bulk-del-form"). -->
+<form id="bulk-del-form" method="post" action="{% url 'conciliaciones:eliminar_items_masivo' %}"
+      onsubmit="return confirm('¿Eliminar los registros seleccionados de esta conciliación?')"
+      class="hidden fixed bottom-16 lg:bottom-0 inset-x-0 z-30 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 p-3 items-center gap-3 shadow-2xl">
+  {% csrf_token %}
+  <input type="hidden" name="r" value="{{ filtro_r }}">
+  <input type="hidden" name="sort" value="{{ sort }}">
+  <input type="hidden" name="volver_lote" value="{{ lote.id }}">
+  <span class="text-sm font-medium"><span id="sel-count-lote">0</span> seleccionado(s)</span>
+  <button class="btn btn-sm btn-error ml-auto">Eliminar seleccionados</button>
+</form>
+
 <script>
   (function () {
+    // Selección masiva: la barra/form vive fuera de la lista; las casillas se
+    // asocian por atributo form="bulk-del-form" (evita anidar <form>s).
+    const bar = document.getElementById('bulk-del-form');
+    function refrescarSel() {
+      const n = [...document.querySelectorAll('.row-check')].filter(c => c.checked).length;
+      document.getElementById('sel-count-lote').textContent = n;
+      bar.classList.toggle('hidden', n === 0);
+      bar.classList.toggle('flex', n > 0);
+    }
+    document.querySelectorAll('.check-all').forEach(ca => ca.addEventListener('change', () => {
+      document.querySelectorAll('.row-check').forEach(c => c.checked = ca.checked);
+      refrescarSel();
+    }));
+    document.querySelectorAll('.row-check').forEach(c => c.addEventListener('change', refrescarSel));
+
     // "Ver original": hx-boost no salta al ancla, así que hacemos scroll + resaltado.
     function flashTarget() {
       if (location.hash.indexOf('#conc-item-') !== 0) return;
