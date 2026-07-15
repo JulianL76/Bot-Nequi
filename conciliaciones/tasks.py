@@ -151,6 +151,14 @@ def validar_y_emparejar(item: Conciliacion, lote: LoteConciliacion) -> str:
             item, f"El APRO ({ref_voucher}) no coincide con la referencia del "
                   f"comprobante candidato ({comp.ref})")
 
+    # El APRO ya validó contra la referencia real del comprobante Nequi: quedarse
+    # con esa referencia completa (empieza en "S", depósito por corresponsal —
+    # el APRO solo existe en vouchers físicos, nunca en transferencias "M") en
+    # vez del APRO corto, para que el listado muestre la referencia real.
+    if (tipo == Conciliacion.TIPO_VOUCHER and ref_voucher
+            and comp.ref and comp.ref.strip().upper().startswith("S")):
+        item.ref = comp.ref
+
     # 4. Duplicado (mismo pago ya conciliado aquí o en otra ruta).
     aviso = _detectar_duplicado(item, comp)
     if aviso:
