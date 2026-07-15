@@ -87,6 +87,28 @@ def lote_detalle(request, lote_id):
 
 
 @login_required
+def descargar_imagenes_lote(request, lote_id):
+    """Descarga en un .zip todas las imágenes de los comprobantes de una subida."""
+    import io
+    import os
+    import zipfile
+
+    negocio = get_negocio(request.user)
+    lote = get_object_or_404(LoteCarga, pk=lote_id, negocio=negocio)
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for comp in lote.comprobantes.exclude(imagen=""):
+            nombre = f"{comp.id}_{os.path.basename(comp.imagen.name)}"
+            with comp.imagen.open("rb") as fh:
+                zf.writestr(nombre, fh.read())
+
+    response = HttpResponse(buffer.getvalue(), content_type="application/zip")
+    response["Content-Disposition"] = f"attachment; filename=lote_{lote_id}_imagenes.zip"
+    return response
+
+
+@login_required
 def lote_progreso(request, lote_id):
     """Endpoint JSON para la barra de progreso (polling)."""
     negocio = get_negocio(request.user)

@@ -9,6 +9,7 @@ urlpatterns = [
     path("subidas/", views.lotes, name="lotes"),
     path("subidas/en-proceso/", views.en_proceso, name="en_proceso"),
     path("lote/<int:lote_id>/", views.lote_detalle, name="lote_detalle"),
+    path("lote/<int:lote_id>/descargar/", views.descargar_imagenes_lote, name="descargar_imagenes_lote"),
     path("lote/<int:lote_id>/progreso/", views.lote_progreso, name="lote_progreso"),
     path("lote/<int:lote_id>/reprocesar/", views.reprocesar, name="reprocesar"),
     path("lote/<int:lote_id>/eliminar/", views.eliminar_lote, name="eliminar_lote"),

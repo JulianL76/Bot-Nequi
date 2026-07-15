@@ -39,6 +39,10 @@
         <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V7"/><path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8"/></svg>
         Comprobantes
       </a>
+      <a href="{% url 'comprobantes:descargar_imagenes_lote' l.id %}" class="flex items-center gap-1.5 text-violet-600 hover:text-violet-700" title="Descargar todas las imágenes de esta subida (.zip)">
+        <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+        Imágenes
+      </a>
       {% endif %}
       {% if l.fallidas and l.estado != 'procesando' and l.estado != 'en_cola' %}
       <form method="post" action="{% url 'comprobantes:reprocesar' l.id %}">{% csrf_token %}

@@ -10,6 +10,7 @@ pero monto distinto) o No está (ref inexistente). Procesa por chunks con back-o
 
 import logging
 import time
+from datetime import date, datetime, timedelta
 
 from celery import shared_task
 from django.utils import timezone
@@ -63,10 +64,17 @@ def _comp_candidato(item: Conciliacion):
         # esas tienen referencia que empieza por "M". Se excluyen para no robarles
         # su comprobante a los ítems Nequi.
         qs = qs.exclude(ref__istartswith="M")
-    # La hora distingue pagos iguales del mismo día; debe coincidir.
+    # La hora distingue pagos iguales del mismo día; se acepta ±1 minuto porque
+    # el reloj del datáfono del corresponsal suele ir unos segundos desfasado
+    # de la hora que Nequi registra realmente para la misma transacción.
     t = parse_hora(item.hora)
     if t:
-        qs = qs.filter(hora=t.strftime("%H:%M"))
+        base_dt = datetime.combine(date.today(), t)
+        horas_aceptadas = {
+            (base_dt + timedelta(minutes=delta)).strftime("%H:%M")
+            for delta in (-1, 0, 1)
+        }
+        qs = qs.filter(hora__in=horas_aceptadas)
     return qs.order_by(*orden).first()
 
 
