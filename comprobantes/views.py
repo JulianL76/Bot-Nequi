@@ -6,10 +6,13 @@ from django.shortcuts import get_object_or_404, redirect, render
 
 from accounts.utils import get_negocio
 
-from django.db.models import Count
+from django.db.models import Count, Q
 
 from .models import ArchivoPendiente, Comprobante, LoteCarga, Notificacion, Ruta
 from .tasks import procesar_lote, reprocesar_lote
+
+# Tamaños de página permitidos en la lista de comprobantes.
+TAM_PAGINA = {"20", "50", "100", "200"}
 
 
 def _recontar_lote_carga(lote):
@@ -137,12 +140,14 @@ def reanudar_lote(request, lote_id):
 
 
 def _filtrar_comprobantes(request, negocio):
-    """Aplica los filtros (q/día/dup/lote) y devuelve (queryset, contexto).
+    """Aplica los filtros (q/día/dup/lote/estado) y devuelve (queryset, contexto).
 
     Compartido por la lista paginada y la exportación a Excel para que ambos
     respeten exactamente los mismos filtros.
     """
     import datetime
+
+    from core.parsing import limpiar_monto
 
     qs = Comprobante.objects.filter(negocio=negocio) if negocio else Comprobante.objects.none()
 
@@ -152,7 +157,13 @@ def _filtrar_comprobantes(request, negocio):
         if q.startswith("#") and q[1:].strip().isdigit():
             qs = qs.filter(pk=int(q[1:].strip()))
         else:
-            qs = qs.filter(de__icontains=q) | qs.filter(ref__icontains=q)
+            filtro = Q(de__icontains=q) | Q(ref__icontains=q)
+            # Si "q" parece un monto ("30000", "$30.000", "30,000"), buscar
+            # también por valor exacto (tolerante a separadores de miles/decimales).
+            monto_q = limpiar_monto(q)
+            if monto_q:
+                filtro |= Q(valor=monto_q)
+            qs = qs.filter(filtro)
 
     # Filtro por día (usa la fecha parseada fecha_dt).
     dia = request.GET.get("dia", "").strip()
@@ -176,6 +187,11 @@ def _filtrar_comprobantes(request, negocio):
     elif dup == "0":
         qs = qs.filter(es_duplicado=False)
 
+    # Filtro por estado: confirmado / sin confirmar.
+    estado = request.GET.get("estado", "").strip()
+    if estado in (Comprobante.CONFIRMADO, Comprobante.SIN_CONFIRMAR):
+        qs = qs.filter(estado=estado)
+
     # Filtro por lote/subida (los comprobantes creados en esa misma subida).
     lote = request.GET.get("lote", "").strip()
     lote_obj = None
@@ -184,7 +200,7 @@ def _filtrar_comprobantes(request, negocio):
         lote_obj = LoteCarga.objects.filter(pk=lote, negocio=negocio).first()
 
     ctx = {"q": q, "dia": dia, "dia_obj": dia_obj, "hora": hora,
-           "dup": dup, "lote": lote, "lote_obj": lote_obj}
+           "dup": dup, "estado": estado, "lote": lote, "lote_obj": lote_obj}
     return qs, ctx
 
 
@@ -225,7 +241,10 @@ def lista(request):
         pagina_qs = pagina_qs.order_by("-creado_en", "-id")
         sort = ""
 
-    paginator = Paginator(pagina_qs, 20)
+    tam = request.GET.get("tam", "").strip()
+    if tam not in TAM_PAGINA:
+        tam = "20"
+    paginator = Paginator(pagina_qs, int(tam))
     page = paginator.get_page(request.GET.get("page"))
 
     # Para los confirmados, enlazar la conciliación (OK) que los confirmó.
@@ -240,7 +259,7 @@ def lista(request):
 
     rutas = Ruta.objects.filter(negocio=negocio, activa=True) if negocio else Ruta.objects.none()
     return render(request, "comprobantes/lista.html",
-                  {"page": page, "rutas": rutas, "n_duplicados": n_duplicados, "sort": sort,
+                  {"page": page, "rutas": rutas, "n_duplicados": n_duplicados, "sort": sort, "tam": tam,
                    "total_count": resumen["n"], "total_valor": resumen["total"] or 0, **ctx})
 
 

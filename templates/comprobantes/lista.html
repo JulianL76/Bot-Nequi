@@ -3,13 +3,16 @@
 {% block title %}Comprobantes{% endblock %}
 {% block header %}Comprobantes{% endblock %}
 {% block content %}
+{% with qp="q="|add:q|add:"&dia="|add:dia|add:"&hora="|add:hora|add:"&lote="|add:lote|add:"&sort="|add:sort|add:"&tam="|add:tam %}
 <div class="flex items-center justify-between mb-3">
   <h1 class="text-xl font-bold hidden lg:block">Comprobantes</h1>
   <form method="get" class="flex flex-wrap gap-2 items-center w-full lg:w-auto">
     {% if dup %}<input type="hidden" name="dup" value="{{ dup }}">{% endif %}
+    {% if estado %}<input type="hidden" name="estado" value="{{ estado }}">{% endif %}
     {% if lote %}<input type="hidden" name="lote" value="{{ lote }}">{% endif %}
     {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
-    <input type="text" name="q" value="{{ q }}" placeholder="Buscar remitente, ref o #id"
+    {% if tam %}<input type="hidden" name="tam" value="{{ tam }}">{% endif %}
+    <input type="text" name="q" value="{{ q }}" placeholder="Buscar remitente, ref, monto o #id"
            class="px-3 py-2.5 border rounded-xl flex-1 min-w-0">
     <div class="relative flex items-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm hover:ring-2 hover:ring-primary-500 transition-all cursor-pointer overflow-hidden flex-1 lg:flex-none">
       <div class="pl-3 py-2.5 pointer-events-none text-primary-500 bg-primary-50 dark:bg-primary-900/30 flex items-center justify-center border-r border-slate-200 dark:border-slate-700">
@@ -28,7 +31,7 @@
       <input type="time" name="hora" value="{{ hora }}" title="Filtrar por hora exacta" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer">
     </div>
     <button class="btn btn-neutral">Buscar</button>
-    {% if q or dia or hora %}<a href="{% url 'comprobantes:lista' %}{% if dup %}?dup={{ dup }}{% endif %}" class="btn btn-ghost btn-sm">Limpiar</a>{% endif %}
+    {% if q or dia or hora %}<a href="{% url 'comprobantes:lista' %}?dup={{ dup }}&estado={{ estado }}" class="btn btn-ghost btn-sm">Limpiar</a>{% endif %}
   </form>
 </div>
 
@@ -56,6 +59,7 @@
     <form method="get" action="{% url 'comprobantes:exportar_lista' %}" hx-boost="false" class="space-y-4">
       {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
       {% if dup %}<input type="hidden" name="dup" value="{{ dup }}">{% endif %}
+      {% if estado %}<input type="hidden" name="estado" value="{{ estado }}">{% endif %}
       {% if lote %}<input type="hidden" name="lote" value="{{ lote }}">{% endif %}
       <div class="grid grid-cols-2 gap-3">
         <div>
@@ -109,15 +113,22 @@
 {% endif %}
 
 <!-- Filtro por duplicados -->
-<div class="flex items-center gap-2 mb-3 text-sm">
-  <a href="?q={{ q }}&dia={{ dia }}&hora={{ hora }}&lote={{ lote }}&sort={{ sort }}" class="px-3 py-1.5 rounded-full border {% if not dup %}bg-primary-600 text-white border-primary-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300{% endif %}">Todos</a>
-  <a href="?q={{ q }}&dia={{ dia }}&hora={{ hora }}&lote={{ lote }}&sort={{ sort }}&dup=0" class="px-3 py-1.5 rounded-full border {% if dup == '0' %}bg-primary-600 text-white border-primary-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300{% endif %}">Originales</a>
-  <a href="?q={{ q }}&dia={{ dia }}&hora={{ hora }}&lote={{ lote }}&sort={{ sort }}&dup=1" class="px-3 py-1.5 rounded-full border {% if dup == '1' %}bg-rose-600 text-white border-rose-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-rose-600 dark:text-rose-400{% endif %}">Duplicados{% if n_duplicados %} ({{ n_duplicados }}){% endif %}</a>
+<div class="flex flex-wrap items-center gap-2 mb-2 text-sm">
+  <a href="?{{ qp }}&estado={{ estado }}" class="px-3 py-1.5 rounded-full border {% if not dup %}bg-primary-600 text-white border-primary-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300{% endif %}">Todos</a>
+  <a href="?{{ qp }}&estado={{ estado }}&dup=0" class="px-3 py-1.5 rounded-full border {% if dup == '0' %}bg-primary-600 text-white border-primary-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300{% endif %}">Originales</a>
+  <a href="?{{ qp }}&estado={{ estado }}&dup=1" class="px-3 py-1.5 rounded-full border {% if dup == '1' %}bg-rose-600 text-white border-rose-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-rose-600 dark:text-rose-400{% endif %}">Duplicados{% if n_duplicados %} ({{ n_duplicados }}){% endif %}</a>
+</div>
+
+<!-- Filtro por estado -->
+<div class="flex flex-wrap items-center gap-2 mb-3 text-sm">
+  <a href="?{{ qp }}&dup={{ dup }}" class="px-3 py-1.5 rounded-full border {% if not estado %}bg-primary-600 text-white border-primary-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300{% endif %}">Todos los estados</a>
+  <a href="?{{ qp }}&dup={{ dup }}&estado=confirmado" class="px-3 py-1.5 rounded-full border {% if estado == 'confirmado' %}bg-emerald-600 text-white border-emerald-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-emerald-600 dark:text-emerald-400{% endif %}">Confirmado</a>
+  <a href="?{{ qp }}&dup={{ dup }}&estado=sin_confirmar" class="px-3 py-1.5 rounded-full border {% if estado == 'sin_confirmar' %}bg-amber-600 text-white border-amber-600{% else %}bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-amber-600 dark:text-amber-400{% endif %}">Sin confirmar</a>
 </div>
 
 <!-- Resumen de lo filtrado -->
 <div class="flex flex-wrap items-center gap-x-4 gap-y-1 mb-3 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/50 text-sm">
-  <span class="text-slate-500">Mostrando <span class="font-semibold text-slate-700 dark:text-slate-200 nums">{{ total_count }}</span> comprobante{{ total_count|pluralize }}{% if q or dia or dup or lote %} (filtrado){% endif %}</span>
+  <span class="text-slate-500">Mostrando <span class="font-semibold text-slate-700 dark:text-slate-200 nums">{{ total_count }}</span> comprobante{{ total_count|pluralize }}{% if q or dia or dup or estado or lote %} (filtrado){% endif %}</span>
   <span class="ml-auto text-slate-500">Total: <span class="font-bold text-base text-slate-900 dark:text-white nums">{{ total_valor|pesos }}</span></span>
 </div>
 
@@ -128,7 +139,7 @@
   <div class="hidden lg:block bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700/50 overflow-hidden" data-layout="desk">
     <table class="w-full text-sm">
       <thead class="bg-slate-50 dark:bg-slate-700/40 text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wide">
-        {% with qp="q="|add:q|add:"&dia="|add:dia|add:"&hora="|add:hora|add:"&dup="|add:dup|add:"&lote="|add:lote %}
+        {% with qp="q="|add:q|add:"&dia="|add:dia|add:"&hora="|add:hora|add:"&dup="|add:dup|add:"&estado="|add:estado|add:"&lote="|add:lote|add:"&tam="|add:tam %}
         <tr>
           <th class="px-3 py-3 w-10 text-left"><input type="checkbox" class="check-all w-4 h-4" data-target="[data-layout='desk']"></th>
           {% spaceless %}
@@ -267,11 +278,30 @@
 
 {% if page.has_other_pages %}
 <div class="mt-4 flex gap-2 items-center justify-center">
-  {% if page.has_previous %}<a href="?q={{ q }}&dia={{ dia }}&hora={{ hora }}&dup={{ dup }}&lote={{ lote }}&sort={{ sort }}&page={{ page.previous_page_number }}" class="px-4 py-2 bg-white rounded-xl shadow inline-flex items-center" aria-label="Anterior"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></a>{% endif %}
+  {% if page.has_previous %}<a href="?{{ qp }}&dup={{ dup }}&estado={{ estado }}&page={{ page.previous_page_number }}" class="px-4 py-2 bg-white rounded-xl shadow inline-flex items-center" aria-label="Anterior"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></a>{% endif %}
   <span class="text-sm nums">{{ page.number }} / {{ page.paginator.num_pages }}</span>
-  {% if page.has_next %}<a href="?q={{ q }}&dia={{ dia }}&hora={{ hora }}&dup={{ dup }}&lote={{ lote }}&sort={{ sort }}&page={{ page.next_page_number }}" class="px-4 py-2 bg-white rounded-xl shadow inline-flex items-center" aria-label="Siguiente"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></a>{% endif %}
+  {% if page.has_next %}<a href="?{{ qp }}&dup={{ dup }}&estado={{ estado }}&page={{ page.next_page_number }}" class="px-4 py-2 bg-white rounded-xl shadow inline-flex items-center" aria-label="Siguiente"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></a>{% endif %}
 </div>
 {% endif %}
+
+<form method="get" class="mt-2 flex justify-center">
+  {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+  {% if dia %}<input type="hidden" name="dia" value="{{ dia }}">{% endif %}
+  {% if hora %}<input type="hidden" name="hora" value="{{ hora }}">{% endif %}
+  {% if dup %}<input type="hidden" name="dup" value="{{ dup }}">{% endif %}
+  {% if estado %}<input type="hidden" name="estado" value="{{ estado }}">{% endif %}
+  {% if lote %}<input type="hidden" name="lote" value="{{ lote }}">{% endif %}
+  {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+  <label class="flex items-center gap-1.5 text-sm text-slate-500">
+    Por página:
+    <select name="tam" onchange="this.form.submit()" class="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+      <option value="20" {% if tam == '20' %}selected{% endif %}>20</option>
+      <option value="50" {% if tam == '50' %}selected{% endif %}>50</option>
+      <option value="100" {% if tam == '100' %}selected{% endif %}>100</option>
+      <option value="200" {% if tam == '200' %}selected{% endif %}>200</option>
+    </select>
+  </label>
+</form>
 
 <script>
   // IIFE: evita colisiones de variables globales al re-ejecutarse con hx-boost.
@@ -304,4 +334,5 @@
     }
   })();
 </script>
+{% endwith %}
 {% endblock %}
