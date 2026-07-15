@@ -140,9 +140,9 @@ def validar_y_emparejar(item: Conciliacion, lote: LoteConciliacion) -> str:
         return "pendiente"
 
     # Voucher: si se pudo leer el APRO (nunca trae letras, son solo los
-    # últimos 6 dígitos de la referencia Nequi real), debe coincidir con los
-    # últimos 6 dígitos de la referencia del candidato (monto+hora iguales no
-    # bastan para confirmar si el APRO no cuadra con esa referencia).
+    # últimos dígitos de la referencia Nequi real), debe ser sufijo de la
+    # referencia del candidato (monto+hora iguales no bastan para confirmar
+    # si el APRO no cuadra con esa referencia).
     ref_voucher = (item.ref or "").strip()
     if (tipo == Conciliacion.TIPO_VOUCHER and ref_voucher
             and ref_voucher.lower() != "no encontrada"

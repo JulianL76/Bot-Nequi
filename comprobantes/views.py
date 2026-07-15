@@ -12,6 +12,19 @@ from .models import ArchivoPendiente, Comprobante, LoteCarga, Notificacion, Ruta
 from .tasks import procesar_lote, reprocesar_lote
 
 
+def _recontar_lote_carga(lote):
+    """Recalcula exitosas/duplicadas según los comprobantes que siguen vivos.
+
+    total/procesadas/fallidas reflejan el resultado histórico del procesamiento
+    (imágenes subidas, no comprobantes actuales) y no se tocan aquí; exitosas y
+    duplicadas sí mapean 1:1 a comprobantes vivos, así que quedan desactualizadas
+    si el usuario borra alguno después (p. ej. al depurar duplicados a mano).
+    """
+    lote.exitosas = lote.comprobantes.filter(es_duplicado=False).count()
+    lote.duplicadas = lote.comprobantes.filter(es_duplicado=True).count()
+    lote.save(update_fields=["exitosas", "duplicadas"])
+
+
 def _excel_comprobantes(qs, filename="comprobantes.xlsx"):
     """Genera una respuesta Excel a partir de un queryset de comprobantes."""
     import openpyxl
@@ -388,7 +401,10 @@ def acciones_lote(request):
 
     elif accion == "eliminar":
         n = qs.count()
+        lote_ids = list(qs.exclude(lote__isnull=True).values_list("lote_id", flat=True).distinct())
         qs.delete()  # dispara la señal que borra las imágenes
+        for lote in LoteCarga.objects.filter(pk__in=lote_ids):
+            _recontar_lote_carga(lote)
         messages.success(request, f"{n} comprobante(s) eliminado(s).")
 
     elif accion == "exportar":
@@ -422,8 +438,11 @@ def editar(request, pk):
 def eliminar(request, pk):
     negocio = get_negocio(request.user)
     comp = get_object_or_404(Comprobante, pk=pk, negocio=negocio)
+    lote = comp.lote
     if request.method == "POST":
         comp.delete()
+        if lote:
+            _recontar_lote_carga(lote)
         messages.success(request, "Comprobante eliminado.")
     return redirect("comprobantes:lista")
 
