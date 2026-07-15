@@ -8,6 +8,7 @@ from django.urls import reverse
 
 from accounts.utils import get_negocio
 from comprobantes.models import Comprobante, Ruta
+from core.downloads import nombre_descarga
 
 from .models import Conciliacion, LoteConciliacion
 from .tasks import emparejar_item, procesar_conciliacion
@@ -189,8 +190,16 @@ def exportar_panel(request):
         messages.error(request, "Tu usuario no tiene un negocio asignado.")
         return redirect("dashboard:home")
 
-    qs, _ = _filtrar_conciliaciones(request, negocio)
-    return _excel_conciliaciones(qs.order_by("-fecha_dt", "-hora", "-id"), "conciliaciones.xlsx")
+    qs, ctx = _filtrar_conciliaciones(request, negocio)
+
+    # Nombre distintivo según el filtro de resultado y rango de fechas activos.
+    extra = []
+    if ctx.get("r"):
+        extra.append(ctx["r"])
+    if ctx.get("desde") or ctx.get("hasta"):
+        extra.append(f"{ctx.get('desde') or 'inicio'}_a_{ctx.get('hasta') or 'hoy'}")
+    nombre = nombre_descarga("conciliaciones", extra)
+    return _excel_conciliaciones(qs.order_by("-fecha_dt", "-hora", "-id"), nombre)
 
 
 @login_required

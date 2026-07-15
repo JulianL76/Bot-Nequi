@@ -5,6 +5,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
 from accounts.utils import get_negocio
+from core.downloads import nombre_descarga
 
 from django.db.models import Count, Q
 
@@ -103,8 +104,9 @@ def descargar_imagenes_lote(request, lote_id):
             with comp.imagen.open("rb") as fh:
                 zf.writestr(nombre, fh.read())
 
+    nombre = nombre_descarga("imagenes", [f"subida-{lote_id}"], ext="zip")
     response = HttpResponse(buffer.getvalue(), content_type="application/zip")
-    response["Content-Disposition"] = f"attachment; filename=lote_{lote_id}_imagenes.zip"
+    response["Content-Disposition"] = f"attachment; filename={nombre}"
     return response
 
 
@@ -315,7 +317,15 @@ def exportar_lista(request):
             cond |= Q(ruta__isnull=True)
         qs = qs.filter(cond)
 
-    return _excel_comprobantes(qs.select_related("ruta"), "comprobantes.xlsx")
+    # Nombre distintivo según los filtros aplicados.
+    lote = request.GET.get("lote", "").strip()
+    extra = []
+    if lote.isdigit():
+        extra.append(f"subida-{lote}")
+    if desde or hasta:
+        extra.append(f"{desde or 'inicio'}_a_{hasta or 'hoy'}")
+    nombre = nombre_descarga("comprobantes", extra)
+    return _excel_comprobantes(qs.select_related("ruta"), nombre)
 
 
 @login_required
@@ -449,7 +459,8 @@ def acciones_lote(request):
         messages.success(request, f"{n} comprobante(s) eliminado(s).")
 
     elif accion == "exportar":
-        return _excel_comprobantes(qs, "comprobantes_seleccion.xlsx")
+        nombre = nombre_descarga("comprobantes", ["seleccion"])
+        return _excel_comprobantes(qs, nombre)
 
     return redirect("comprobantes:lista")
 

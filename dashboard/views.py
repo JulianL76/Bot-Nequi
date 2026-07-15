@@ -12,6 +12,7 @@ from django.utils import timezone
 from accounts.utils import get_negocio
 from comprobantes.models import Comprobante
 from conciliaciones.models import Conciliacion
+from core.downloads import nombre_descarga
 
 
 def get_greeting(request):
@@ -213,9 +214,10 @@ def exportar_excel(request):
             c.creado_en.strftime("%Y-%m-%d %H:%M"),
         ])
 
+    nombre = nombre_descarga("comprobantes")
     response = HttpResponse(
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-    response["Content-Disposition"] = "attachment; filename=comprobantes.xlsx"
+    response["Content-Disposition"] = f"attachment; filename={nombre}"
     wb.save(response)
     return response
