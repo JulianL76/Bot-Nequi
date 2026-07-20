@@ -219,11 +219,13 @@ def conciliar(request):
             messages.error(request, "Selecciona al menos una imagen.")
             return redirect("conciliaciones:conciliar")
 
-        lote = LoteConciliacion.objects.create(
-            negocio=negocio, creado_por=request.user, ruta=ruta, total=len(archivos)
-        )
-        for f in archivos:
-            Conciliacion.objects.create(negocio=negocio, lote=lote, ruta=ruta, imagen=f)
+        from django.db import transaction
+        with transaction.atomic():
+            lote = LoteConciliacion.objects.create(
+                negocio=negocio, creado_por=request.user, ruta=ruta, total=len(archivos)
+            )
+            for f in archivos:
+                Conciliacion.objects.create(negocio=negocio, lote=lote, ruta=ruta, imagen=f)
         procesar_conciliacion.delay(lote.id)
         messages.success(request, f"Conciliación #{lote.id} en proceso ({len(archivos)} imágenes).")
         return redirect("conciliaciones:lote_detalle", lote_id=lote.id)

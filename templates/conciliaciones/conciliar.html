@@ -5,22 +5,32 @@
 {% block content %}
 {% include "comprobantes/_filepond_head.html" %}
 <h1 class="text-2xl font-bold mb-4">Conciliar comprobantes por ruta</h1>
-<div class="bg-white p-6 rounded-xl shadow max-w-2xl">
+<div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow max-w-2xl relative overflow-hidden">
   {% if rutas %}
-  <form method="post" enctype="multipart/form-data" hx-boost="false">{% csrf_token %}
-    <label class="block text-sm font-medium mb-1">Ruta</label>
-    <select name="ruta" required class="w-full p-2 border rounded mb-4">
+  <form id="upload-form" method="post" enctype="multipart/form-data" hx-boost="false">{% csrf_token %}
+    <label class="block text-sm font-medium mb-1 dark:text-slate-200">Ruta</label>
+    <select name="ruta" required class="w-full p-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded-lg mb-4">
       {% for r in rutas %}<option value="{{ r.id }}">{{ r }}</option>{% endfor %}
     </select>
 
     <input type="file" name="imagenes" multiple accept="image/*" class="filepond-input">
     <div class="fp-contador"></div>
-    <div class="text-sm text-slate-500 mt-2">Se procesan en lotes de 30 y se cruzan con tus comprobantes.</div>
-    <button class="mt-5 inline-flex items-center gap-2 bg-violet-600 text-white px-6 py-2 rounded hover:bg-violet-700">
+    <div class="text-sm text-slate-500 dark:text-slate-400 mt-2">Se procesan en lotes de 30 y se cruzan con tus comprobantes.</div>
+    
+    <button id="btn-procesar" type="submit" class="mt-5 inline-flex items-center gap-2 bg-violet-600 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
       <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-      Conciliar
+      <span id="btn-text">Conciliar</span>
     </button>
   </form>
+
+  <!-- Overlay de carga durante la subida al servidor -->
+  <div id="upload-overlay" class="hidden absolute inset-0 bg-white/95 dark:bg-slate-800/95 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center z-20">
+    <div class="w-12 h-12 border-4 border-violet-200 dark:border-violet-900 border-t-violet-600 dark:border-t-violet-400 rounded-full animate-spin mb-4"></div>
+    <h3 class="font-bold text-lg text-slate-800 dark:text-slate-100" id="upload-title">Subiendo imágenes...</h3>
+    <p class="text-sm text-slate-500 dark:text-slate-400 mt-2 max-w-sm" id="upload-msg">
+      Enviando archivos al servidor. Por favor no cierres esta página; este proceso puede tardar unos minutos según tu velocidad de internet.
+    </p>
+  </div>
   {% else %}
     <p class="text-slate-500">No tienes rutas activas. Crea una en el
       <a href="{% url 'admin:comprobantes_ruta_changelist' %}" class="text-violet-600">admin → Rutas</a>.</p>
@@ -41,18 +51,18 @@
       );
       var contador = document.querySelector('.fp-contador');
       var pond = FilePond.create(input, {
-      name: 'imagenes',
-      allowMultiple: true,
-      storeAsFile: true,
-      allowImagePreview: false,     // sin miniaturas: evita que cientos de fotos congelen el navegador
-      acceptedFileTypes: ['image/*'],
-      maxFileSize: '15MB',
-      maxFiles: 900,
-      credits: false,
-      itemInsertInterval: 0,
-      labelIdle: 'Arrastra o <span class="filepond--label-action">elige imágenes</span> · hasta 900',
-      labelMaxFileSizeExceeded: 'La imagen es muy grande',
-      labelFileTypeNotAllowed: 'Solo se permiten imágenes',
+        name: 'imagenes',
+        allowMultiple: true,
+        storeAsFile: true,
+        allowImagePreview: false,     // sin miniaturas: evita que cientos de fotos congelen el navegador
+        acceptedFileTypes: ['image/*'],
+        maxFileSize: '15MB',
+        maxFiles: 900,
+        credits: false,
+        itemInsertInterval: 0,
+        labelIdle: 'Arrastra o <span class="filepond--label-action">elige imágenes</span> · hasta 900',
+        labelMaxFileSizeExceeded: 'La imagen es muy grande',
+        labelFileTypeNotAllowed: 'Solo se permiten imágenes',
       });
       function actualizarContador() {
         var n = pond.getFiles().length;
@@ -60,6 +70,30 @@
       }
       pond.on('addfile', actualizarContador);
       pond.on('removefile', actualizarContador);
+
+      // Manejo de envío de formulario con indicador de progreso
+      var form = document.getElementById('upload-form');
+      if (form) {
+        var btn = document.getElementById('btn-procesar');
+        var btnText = document.getElementById('btn-text');
+        var overlay = document.getElementById('upload-overlay');
+        var title = document.getElementById('upload-title');
+
+        form.addEventListener('submit', function (e) {
+          var n = pond ? pond.getFiles().length : 0;
+          if (!n) {
+            e.preventDefault();
+            if (window.toast) window.toast('Selecciona al menos una imagen', 'warning');
+            else alert('Selecciona al menos una imagen');
+            return false;
+          }
+
+          btn.disabled = true;
+          btnText.textContent = 'Subiendo ' + n + ' imágenes...';
+          title.textContent = 'Subiendo ' + n + ' imágenes al servidor';
+          overlay.classList.remove('hidden');
+        });
+      }
     })();
   })();
 </script>

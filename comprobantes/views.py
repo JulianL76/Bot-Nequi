@@ -64,12 +64,14 @@ def subir(request):
             messages.error(request, "Selecciona al menos una imagen.")
             return redirect("comprobantes:subir")
 
-        lote = LoteCarga.objects.create(
-            negocio=negocio, creado_por=request.user, total=len(archivos)
-        )
-        # Solo se guarda la imagen pendiente; el comprobante se crea tras analizar.
-        for f in archivos:
-            ArchivoPendiente.objects.create(lote=lote, imagen=f)
+        from django.db import transaction
+        with transaction.atomic():
+            lote = LoteCarga.objects.create(
+                negocio=negocio, creado_por=request.user, total=len(archivos)
+            )
+            # Solo se guarda la imagen pendiente; el comprobante se crea tras analizar.
+            for f in archivos:
+                ArchivoPendiente.objects.create(lote=lote, imagen=f)
         procesar_lote.delay(lote.id)
         messages.success(request, f"Lote #{lote.id} en proceso ({len(archivos)} imágenes).")
         return redirect("comprobantes:lote_detalle", lote_id=lote.id)
