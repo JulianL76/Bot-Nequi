@@ -83,8 +83,14 @@ def procesar_lote(lote_id: int):
         logger.error(f"Lote {lote_id} no existe")
         return
 
-    lote.estado = LoteCarga.PROCESANDO
-    lote.save(update_fields=["estado"])
+    try:
+        lote.estado = LoteCarga.PROCESANDO
+        lote.save(update_fields=["estado"])
+    except Exception as e:
+        if type(e).__name__ == "NotUpdated":
+            logger.info(f"Lote {lote_id} fue eliminado antes de procesar.")
+            return
+        raise
 
     # Solo los pendientes (fallido=False). Así el lote es reanudable tras pausar.
     archivos = list(lote.archivos.filter(fallido=False).order_by("id"))
@@ -123,7 +129,14 @@ def procesar_lote(lote_id: int):
                 lote.duplicadas += 1
             else:
                 lote.fallidas += 1
-            lote.save(update_fields=["procesadas", "exitosas", "duplicadas", "fallidas"])
+                
+            try:
+                lote.save(update_fields=["procesadas", "exitosas", "duplicadas", "fallidas"])
+            except Exception as e:
+                if type(e).__name__ == "NotUpdated":
+                    logger.warning(f"Lote {lote_id} fue eliminado durante el procesamiento. Abortando.")
+                    return
+                raise
 
             # Si fue ok/dup, el comprobante (si hubo) ya tiene su copia → borrar staging.
             # Si falló, conservar el archivo marcado (con su error) para reprocesarlo.
@@ -132,7 +145,13 @@ def procesar_lote(lote_id: int):
             else:
                 arch.fallido = True
                 arch.error = error_msg
-                arch.save(update_fields=["fallido", "error"])
+                try:
+                    arch.save(update_fields=["fallido", "error"])
+                except Exception as e:
+                    if type(e).__name__ == "NotUpdated":
+                        pass
+                    else:
+                        raise
 
             time.sleep(PAUSA_ENTRE_IMAGENES)
 
@@ -154,8 +173,14 @@ def reprocesar_lote(lote_id: int):
     if not fallidos:
         return
 
-    lote.estado = LoteCarga.PROCESANDO
-    lote.save(update_fields=["estado"])
+    try:
+        lote.estado = LoteCarga.PROCESANDO
+        lote.save(update_fields=["estado"])
+    except Exception as e:
+        if type(e).__name__ == "NotUpdated":
+            logger.info(f"Lote {lote_id} fue eliminado antes de reprocesar.")
+            return
+        raise
     batch_size = getattr(settings, "BATCH_SIZE", 30)
 
     for chunk in _chunks(fallidos, batch_size):
@@ -182,12 +207,26 @@ def reprocesar_lote(lote_id: int):
                     lote.exitosas += 1
                 else:
                     lote.duplicadas += 1
-                lote.save(update_fields=["fallidas", "exitosas", "duplicadas"])
+                
+                try:
+                    lote.save(update_fields=["fallidas", "exitosas", "duplicadas"])
+                except Exception as e:
+                    if type(e).__name__ == "NotUpdated":
+                        logger.warning(f"Lote {lote_id} fue eliminado durante el reprocesamiento. Abortando.")
+                        return
+                    raise
+                
                 arch.delete()
             else:
                 # Sigue fallando: actualizar el motivo del error.
                 arch.error = error_msg or "La IA no pudo extraer datos de la imagen."
-                arch.save(update_fields=["error"])
+                try:
+                    arch.save(update_fields=["error"])
+                except Exception as e:
+                    if type(e).__name__ == "NotUpdated":
+                        pass
+                    else:
+                        raise
             time.sleep(PAUSA_ENTRE_IMAGENES)
         time.sleep(PAUSA_ENTRE_LOTES)
 
@@ -203,12 +242,25 @@ def _finalizar_lote(lote: LoteCarga):
     pendientes = lote.archivos.filter(fallido=False).count()
     if pendientes:
         lote.estado = LoteCarga.PAUSADO
-        lote.save(update_fields=["estado"])
+        try:
+            lote.save(update_fields=["estado"])
+        except Exception as e:
+            if type(e).__name__ == "NotUpdated":
+                pass
+            else:
+                raise
         return
 
     lote.estado = LoteCarga.COMPLETADO if lote.fallidas == 0 else LoteCarga.CON_ERRORES
     lote.terminado_en = timezone.now()
-    lote.save(update_fields=["estado", "terminado_en"])
+    
+    try:
+        lote.save(update_fields=["estado", "terminado_en"])
+    except Exception as e:
+        if type(e).__name__ == "NotUpdated":
+            return
+        raise
+        
     _notificar_fin(lote)
 
 

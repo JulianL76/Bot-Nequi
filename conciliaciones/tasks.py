@@ -223,8 +223,14 @@ def procesar_conciliacion(lote_id: int):
         logger.error(f"Lote de conciliación {lote_id} no existe")
         return
 
-    lote.estado = LoteConciliacion.PROCESANDO
-    lote.save(update_fields=["estado"])
+    try:
+        lote.estado = LoteConciliacion.PROCESANDO
+        lote.save(update_fields=["estado"])
+    except Exception as e:
+        if type(e).__name__ == "NotUpdated":
+            logger.info(f"Lote de conciliación {lote_id} fue eliminado antes de procesar.")
+            return
+        raise
 
     # Solo los pendientes (sin resultado). Así el lote es reanudable tras pausar.
     items = list(lote.items.filter(resultado__isnull=True).order_by("id"))
@@ -265,8 +271,14 @@ def procesar_conciliacion(lote_id: int):
                 lote.duplicados += 1
             else:
                 lote.no_esta += 1
-            lote.save(update_fields=["procesadas", "ok", "pendientes", "no_esta",
-                                     "revision", "duplicados"])
+            try:
+                lote.save(update_fields=["procesadas", "ok", "pendientes", "no_esta",
+                                         "revision", "duplicados"])
+            except Exception as e:
+                if type(e).__name__ == "NotUpdated":
+                    logger.warning(f"Lote de conciliación {lote_id} fue eliminado durante el procesamiento. Abortando.")
+                    return
+                raise
             time.sleep(PAUSA_ENTRE_IMAGENES)
 
         time.sleep(PAUSA_ENTRE_LOTES)
@@ -274,12 +286,23 @@ def procesar_conciliacion(lote_id: int):
     # Si quedaron pendientes (p. ej. se pausó antes de llegar a ellos), no completar.
     if lote.items.filter(resultado__isnull=True).exists():
         lote.estado = LoteConciliacion.PAUSADO
-        lote.save(update_fields=["estado"])
+        try:
+            lote.save(update_fields=["estado"])
+        except Exception as e:
+            if type(e).__name__ == "NotUpdated":
+                pass
+            else:
+                raise
         return
 
     lote.estado = LoteConciliacion.COMPLETADO
     lote.terminado_en = timezone.now()
-    lote.save(update_fields=["estado", "terminado_en"])
+    try:
+        lote.save(update_fields=["estado", "terminado_en"])
+    except Exception as e:
+        if type(e).__name__ == "NotUpdated":
+            return
+        raise
 
     _notificar_fin(lote)
 
