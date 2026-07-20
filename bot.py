@@ -31,7 +31,7 @@ GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+GROQ_MODEL = "llama-3.2-11b-vision-preview"
 PREFERRED_IA_FILE = "preferred_ia.json"
 
 groq_client = Groq(api_key=GROQ_KEY) if GROQ_KEY else None
@@ -63,7 +63,7 @@ LOG_DIR = "logs_comprobantes"
 DEBUG_FILE = "debug_log.json"
 QUOTA_FILE = "quota_tracker.json"
 PAGE_SIZE = 5
-# Límites oficiales Groq free tier para llama-4-scout-17b-16e-instruct
+# Límites oficiales Groq free tier para llama-3.2-11b-vision-preview
 GROQ_RPD = 1000   # requests per day
 GROQ_RPM = 30     # requests per minute
 GROQ_TPD = 500000 # tokens per day

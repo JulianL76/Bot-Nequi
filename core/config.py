@@ -22,7 +22,7 @@ GROQ_KEY_BACKUP = os.getenv("GROQ_API_KEY_BACKUP")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 
 # --- Modelos ---------------------------------------------------------------
-GROQ_MODEL = os.getenv("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.2-11b-vision-preview")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 # --- Límites oficiales Groq free tier --------------------------------------
