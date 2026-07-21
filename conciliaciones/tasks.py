@@ -9,6 +9,7 @@ pero monto distinto) o No está (ref inexistente). Procesa por chunks con back-o
 """
 
 import logging
+import re
 import time
 from datetime import date, datetime, timedelta
 
@@ -39,9 +40,11 @@ def _marcar_revision(item: Conciliacion, motivo: str) -> str:
 def _comp_candidato(item: Conciliacion):
     """Devuelve el Comprobante candidato (sin confirmar) según el tipo del item.
 
-    - nequi con ref reconocible (empieza por "M" o "S") → por esa referencia (mismo día).
-    - voucher, o nequi sin ref reconocible (se da por no encontrada) → por
-      monto + fecha + HORA (para no confundir pagos del mismo monto/día).
+    - Si ref está presente y no es "no encontrada":
+      1. Intenta coincidencia exacta por referencia (`ref__iexact=ref`).
+      2. Intenta coincidencia por APRO/sufijo (`refs_coinciden`).
+    - Si no se encuentra por ref o APRO: busca por monto + fecha + hora.
+      Si hay varios candidatos por monto/hora, prioriza el que coincida con el APRO.
     """
     base = Comprobante.objects.filter(negocio=item.negocio)
     if item.fecha_dt:
@@ -51,22 +54,34 @@ def _comp_candidato(item: Conciliacion):
     orden = ("es_duplicado", "creado_en", "id")
 
     ref = (item.ref or "").strip()
-    ref_reconocible = ref.upper().startswith(("M", "S"))
+    has_ref = bool(ref and ref.lower() != "no encontrada")
 
-    if item.tipo == Conciliacion.TIPO_NEQUI and ref and ref.lower() != "no encontrada" and ref_reconocible:
-        return base.filter(ref=ref).order_by(*orden).first()
+    if has_ref:
+        # 1. Coincidencia exacta por ref (p. ej. "S78987831" o "M1234567")
+        exacto = base.filter(ref__iexact=ref).order_by(*orden).first()
+        if exacto:
+            return exacto
 
-    # Voucher, o Nequi con una referencia que no empieza por M/S (no es una
-    # referencia Nequi reconocible, se da por no encontrada): monto+fecha+hora.
+        # 2. Coincidencia por APRO (p. ej. ref es "78987831" o "87831" y el comprobante es "S78987831")
+        qs_ref = base
+        if item.tipo == Conciliacion.TIPO_VOUCHER and not ref.upper().startswith("M"):
+            qs_ref = qs_ref.exclude(ref__istartswith="M")
+
+        dv = re.sub(r"\D", "", ref)
+        if len(dv) >= 4:
+            candidatos_apro = list(qs_ref.filter(ref__endswith=dv).order_by(*orden))
+            for c in candidatos_apro:
+                if refs_coinciden(ref, c.ref):
+                    return c
+            for c in qs_ref.order_by(*orden):
+                if refs_coinciden(ref, c.ref):
+                    return c
+
+    # 3. Búsqueda por monto + fecha + hora
     qs = base.filter(valor=item.valor)
-    if item.tipo == Conciliacion.TIPO_VOUCHER:
-        # Un voucher (corresponsal) NO debe casar con una transferencia Nequi:
-        # esas tienen referencia que empieza por "M". Se excluyen para no robarles
-        # su comprobante a los ítems Nequi.
+    if item.tipo == Conciliacion.TIPO_VOUCHER and not (has_ref and ref.upper().startswith("M")):
         qs = qs.exclude(ref__istartswith="M")
-    # La hora distingue pagos iguales del mismo día; se acepta ±1 minuto porque
-    # el reloj del datáfono del corresponsal suele ir unos segundos desfasado
-    # de la hora que Nequi registra realmente para la misma transacción.
+
     t = parse_hora(item.hora)
     if t:
         base_dt = datetime.combine(date.today(), t)
@@ -75,7 +90,18 @@ def _comp_candidato(item: Conciliacion):
             for delta in (-1, 0, 1)
         }
         qs = qs.filter(hora__in=horas_aceptadas)
-    return qs.order_by(*orden).first()
+
+    candidatos = list(qs.order_by(*orden))
+    if not candidatos:
+        return None
+
+    # Si hay candidatos por monto/hora y tenemos ref, priorizar el que coincida por APRO
+    if has_ref:
+        for c in candidatos:
+            if refs_coinciden(ref, c.ref):
+                return c
+
+    return candidatos[0]
 
 
 def _detectar_duplicado(item: Conciliacion, comp: Comprobante) -> str:
