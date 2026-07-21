@@ -67,3 +67,29 @@ class EmparejamientoVoucherTest(TestCase):
         resultado = validar_y_emparejar(item, self.lote)
         self.assertEqual(resultado, "ok")
         self.assertEqual(item.comprobante, self.comp2)
+
+
+class ParseHoraTest(TestCase):
+    def test_variantes_ampm_y_puntos(self):
+        from core.parsing import parse_hora
+        from datetime import time
+
+        # 12h AM / PM con y sin espacios, puntos, minús/mayús
+        self.assertEqual(parse_hora("11:21 AM"), time(11, 21))
+        self.assertEqual(parse_hora("11:21AM"), time(11, 21))
+        self.assertEqual(parse_hora("11:21 am"), time(11, 21))
+        self.assertEqual(parse_hora("11:21a.m."), time(11, 21))
+        self.assertEqual(parse_hora("05:43 p. m."), time(17, 43))
+        self.assertEqual(parse_hora("5:43pm"), time(17, 43))
+        self.assertEqual(parse_hora("11.21 a. m."), time(11, 21))
+        self.assertEqual(parse_hora("11.21.05 PM"), time(23, 21, 5))
+
+        # 24h
+        self.assertEqual(parse_hora("17:32:00"), time(17, 32))
+        self.assertEqual(parse_hora("17:32"), time(17, 32))
+        self.assertEqual(parse_hora("11:21"), time(11, 21))
+
+        # 12:00 AM (medianoche) y 12:00 PM (mediodía)
+        self.assertEqual(parse_hora("12:00 AM"), time(0, 0))
+        self.assertEqual(parse_hora("12:00 PM"), time(12, 0))
+

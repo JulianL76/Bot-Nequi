@@ -109,22 +109,60 @@ def parse_fecha(fecha_str):
 
 
 def parse_hora(hora_str):
-    """Convierte la hora de texto a `datetime.time` (24h), o None.
+    """Convierte cualquier formato de hora de texto a `datetime.time` (24h), o None.
 
-    Maneja los dos formatos reales:
-      - Nequi:       "05:43 p. m."  (12h con puntos/espacios am/pm)
-      - Bancolombia: "17:32:00"     (24h con segundos)
+    Maneja variantes reales (Nequi, Bancolombia, vouchers, datáfonos):
+      - 12h con AM/PM: "05:43 p. m.", "5:43pm", "11:21 AM", "11:21am", "11.21 a. m.", etc.
+      - 24h: "17:32:00", "17:32", "05:32"
+      - Separador con punto o dos puntos: "11.21 AM", "11.21"
     """
     if not hora_str or not isinstance(hora_str, str):
         return None
-    clean = re.sub(r"p\.?\s*m\.?", "PM", hora_str, flags=re.IGNORECASE)
-    clean = re.sub(r"a\.?\s*m\.?", "AM", clean, flags=re.IGNORECASE).strip()
-    for fmt in ("%I:%M %p", "%I:%M:%S %p", "%H:%M:%S", "%H:%M"):
-        try:
-            return datetime.strptime(clean, fmt).time()
-        except ValueError:
-            continue
-    return None
+
+    s = hora_str.strip()
+    if not s or "no encontrada" in s.lower():
+        return None
+
+    # Detectar indicador AM / PM
+    es_pm = bool(re.search(r'(?i)\b[p]\.?\s*m\.?\b', s) or re.search(r'(?i)\d\s*[p]\.?\s*m\.?', s))
+    es_am = bool(re.search(r'(?i)\b[a]\.?\s*m\.?\b', s) or re.search(r'(?i)\d\s*[a]\.?\s*m\.?', s))
+
+    # Limpiar texto am/pm para trabajar solo con dígitos y separadores
+    s_clean = re.sub(r'(?i)[ap]\.?\s*m\.?', '', s).strip()
+
+    # Normalizar punto separador ("11.21" -> "11:21", "11.21.05" -> "11:21:05")
+    s_clean = re.sub(r'(\d{1,2})\.(\d{2})\.(\d{2})', r'\1:\2:\3', s_clean)
+    s_clean = re.sub(r'(\d{1,2})\.(\d{2})', r'\1:\2', s_clean)
+
+    # Extraer HH:MM u HH:MM:SS
+    m = re.search(r'\b(\d{1,2}):(\d{2})(?::(\d{2}))?\b', s_clean)
+    if not m:
+        return None
+
+    h = int(m.group(1))
+    mins = int(m.group(2))
+    secs = int(m.group(3)) if m.group(3) else 0
+
+    if not (0 <= mins <= 59 and 0 <= secs <= 59):
+        return None
+
+    from datetime import time as time_cls
+    if es_pm or es_am:
+        if 1 <= h <= 12:
+            if es_pm and h < 12:
+                h += 12
+            elif es_am and h == 12:
+                h = 0
+        elif not (0 <= h <= 23):
+            return None
+    else:
+        if not (0 <= h <= 23):
+            return None
+
+    try:
+        return time_cls(h, mins, secs)
+    except ValueError:
+        return None
 
 
 def parse_fecha_hora(fecha_str, hora_str=None):

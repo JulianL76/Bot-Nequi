@@ -5,6 +5,7 @@ from django.dispatch import receiver
 
 from accounts.models import Negocio
 from comprobantes.models import Comprobante, Ruta
+from core.parsing import parse_fecha, parse_hora
 
 
 class LoteConciliacion(models.Model):
@@ -115,6 +116,17 @@ class Conciliacion(models.Model):
         ordering = ["id"]
         verbose_name = "Conciliación"
         verbose_name_plural = "Conciliaciones"
+
+    def save(self, *args, **kwargs):
+        # Mantener fecha_dt sincronizada con la fecha en texto
+        if self.fecha:
+            self.fecha_dt = parse_fecha(self.fecha)
+        # Normalizar hora a formato 24h "HH:MM" (elimina AM/PM y estandariza)
+        if self.hora:
+            t = parse_hora(self.hora)
+            if t:
+                self.hora = t.strftime("%H:%M")
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.ref} → {self.get_resultado_display() or 'pendiente'}"
