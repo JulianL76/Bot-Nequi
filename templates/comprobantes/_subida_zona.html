@@ -1,6 +1,6 @@
 {# Zona de subida (input + progreso). Espera `guardadas` en el contexto.
    Va dentro del <form>; el motor lo enlaza por clases (ver _filepond_head.html). #}
-<input type="file" name="imagenes" multiple accept="image/*" class="filepond-input">
+<input type="file" name="imagenes" multiple accept="image/*,.zip,application/zip" class="filepond-input">
 
 {# Progreso de la subida en curso (una petición por imagen). #}
 <div class="fp-estado mt-3" style="display: none;">

@@ -7,6 +7,7 @@ from django.views.decorators.http import require_POST
 
 from accounts.utils import get_negocio
 from core.downloads import nombre_descarga
+from core.zips import ResumenZip, ZipInvalido, es_zip, imagenes_de_zip
 
 from django.db.models import Count, Q
 
@@ -67,14 +68,30 @@ def _borrador(negocio, user, crear=False):
     return lote
 
 
+def _guardar_subida(lote, f):
+    """Guarda un archivo subido en el lote. Si es un .zip, lo expande.
+
+    Devuelve `(imagenes_guardadas, entradas_omitidas)`.
+    """
+    if not es_zip(f):
+        ArchivoPendiente.objects.create(lote=lote, imagen=f)
+        return 1, 0
+
+    resumen = ResumenZip()
+    for contenido in imagenes_de_zip(f, resumen):
+        ArchivoPendiente.objects.create(lote=lote, imagen=contenido)
+    return resumen.imagenes, resumen.omitidas
+
+
 @login_required
 @require_POST
 def subir_archivo(request):
-    """Recibe UNA imagen por petición (AJAX) y la guarda en el lote borrador.
+    """Recibe UN archivo por petición (AJAX) y lo guarda en el lote borrador.
 
-    Subir las imágenes de una en una es lo que hace viable la subida desde el
-    celular: cada petición es pequeña, se reintenta sola si falla y lo ya subido
-    no se pierde si se cae la conexión a mitad de camino.
+    Subir de a un archivo es lo que hace viable la subida desde el celular: cada
+    petición es pequeña, se reintenta sola si falla y lo ya subido no se pierde
+    si se cae la conexión a mitad de camino. Un .zip cuenta como un archivo aquí
+    y se expande en el servidor a tantas imágenes como traiga dentro.
     """
     negocio = get_negocio(request.user)
     if not negocio:
@@ -82,12 +99,20 @@ def subir_archivo(request):
 
     f = request.FILES.get("imagenes") or request.FILES.get("imagen")
     if not f:
-        return JsonResponse({"error": "No llegó ninguna imagen."}, status=400)
+        return JsonResponse({"error": "No llegó ningún archivo."}, status=400)
 
     lote = _borrador(negocio, request.user, crear=True)
-    arch = ArchivoPendiente.objects.create(lote=lote, imagen=f)
-    # FilePond espera el id del archivo como texto plano en el cuerpo.
-    return HttpResponse(str(arch.pk), content_type="text/plain")
+    try:
+        n, omitidas = _guardar_subida(lote, f)
+    except ZipInvalido as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+    if not n:
+        return JsonResponse({"error": "El .zip no contiene imágenes en un formato admitido."},
+                            status=400)
+    # FilePond guarda este cuerpo como id del archivo; el front lee `n` de ahí
+    # para saber cuántas imágenes entraron (un zip aporta muchas de una vez).
+    return JsonResponse({"n": n, "omitidas": omitidas})
 
 
 @login_required
@@ -124,7 +149,10 @@ def subir(request):
             if sueltos:
                 lote = lote or _borrador(negocio, request.user, crear=True)
                 for f in sueltos:
-                    ArchivoPendiente.objects.create(lote=lote, imagen=f)
+                    try:
+                        _guardar_subida(lote, f)
+                    except ZipInvalido as e:
+                        messages.warning(request, f"{f.name}: {e}")
 
             total = lote.archivos.count() if lote else 0
             if not total:

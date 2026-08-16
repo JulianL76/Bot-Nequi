@@ -1,4 +1,3 @@
-import io
 import shutil
 import tempfile
 from datetime import date
@@ -11,19 +10,12 @@ from django.urls import reverse
 
 from accounts.models import Negocio, PerfilUsuario
 from comprobantes.models import Comprobante, Ruta
+# Fábricas de archivos de prueba compartidas (imagen, zip).
+from comprobantes.tests import _bytes_jpeg, _imagen, _zip
 from conciliaciones.models import Conciliacion, LoteConciliacion
 from conciliaciones.tasks import validar_y_emparejar, _comp_candidato
 
 _MEDIA_TMP = tempfile.mkdtemp()
-
-
-def _imagen(nombre="foto.jpg"):
-    """Un JPEG mínimo válido (ImageField lo verifica con Pillow)."""
-    from PIL import Image
-
-    buf = io.BytesIO()
-    Image.new("RGB", (8, 8), "white").save(buf, format="JPEG")
-    return SimpleUploadedFile(nombre, buf.getvalue(), content_type="image/jpeg")
 
 
 class EmparejamientoVoucherTest(TestCase):
@@ -175,3 +167,27 @@ class SubidaPorArchivoConciliarTest(TestCase):
         self._subir(2)
         self.assertEqual(list(self.client.get(reverse("conciliaciones:lista")).context["page"]), [])
         self.assertEqual(list(self.client.get(reverse("conciliaciones:panel")).context["page"]), [])
+
+    def test_un_zip_se_expande_a_varias_imagenes_del_borrador(self):
+        r = self.client.post(reverse("conciliaciones:conciliar_archivo"),
+                             {"imagenes": _zip({"a.jpg": _bytes_jpeg(),
+                                                "sub/b.png": _bytes_jpeg(),
+                                                "notas.txt": b"hola"})})
+        self.assertEqual(r.json(), {"n": 2, "omitidas": 1})
+        lote = LoteConciliacion.objects.get(estado=LoteConciliacion.BORRADOR)
+        self.assertEqual(lote.items.count(), 2)
+
+    def test_conciliar_aplica_la_ruta_tambien_a_las_imagenes_del_zip(self):
+        self.client.post(reverse("conciliaciones:conciliar_archivo"),
+                         {"imagenes": _zip({f"f{i}.jpg": _bytes_jpeg() for i in range(4)})})
+        with patch("conciliaciones.views.procesar_conciliacion.delay"):
+            self.client.post(reverse("conciliaciones:conciliar"), {"ruta": self.ruta.id})
+        lote = LoteConciliacion.objects.get()
+        self.assertEqual(lote.total, 4)
+        self.assertEqual(lote.items.filter(ruta=self.ruta).count(), 4)
+
+    def test_zip_danado_responde_400(self):
+        malo = SimpleUploadedFile("roto.zip", b"no soy un zip", content_type="application/zip")
+        r = self.client.post(reverse("conciliaciones:conciliar_archivo"), {"imagenes": malo})
+        self.assertEqual(r.status_code, 400)
+        self.assertFalse(Conciliacion.objects.exists())
