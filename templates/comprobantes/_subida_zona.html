@@ -1,5 +1,13 @@
-{# Zona de subida (input + progreso). Espera `guardadas` en el contexto.
-   Va dentro del <form>; el motor lo enlaza por clases (ver _filepond_head.html). #}
+{% comment %}
+Zona de subida (input + progreso). Espera `guardadas` en el contexto.
+Va dentro del formulario; el motor la enlaza por clases (ver _filepond_head.html).
+{% endcomment %}
+{# Marcador mientras cargan los scripts de FilePond. Lo muestra y lo oculta el JS. #}
+<div class="fp-cargando rounded-2xl border-2 border-dashed border-violet-300 dark:border-violet-800 bg-violet-50 dark:bg-violet-900/10 px-4 py-8 text-center text-sm text-violet-700 dark:text-violet-300"
+     style="display: none;">
+  Cargando el selector de imágenes…
+</div>
+
 <input type="file" name="imagenes" multiple accept="image/*,.zip,application/zip" class="filepond-input">
 
 {# Progreso de la subida en curso (una petición por imagen). #}

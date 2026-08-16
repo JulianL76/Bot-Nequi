@@ -1,6 +1,17 @@
-{# Assets de FilePond + motor de subida para las pantallas de subida (subir, conciliar). #}
-{# Sin plugin de miniaturas a propósito: con cientos de fotos decodificar previews congela el navegador. #}
-<link href="https://cdn.jsdelivr.net/npm/filepond@4/dist/filepond.min.css" rel="stylesheet">
+{% load static %}
+{% comment %}
+Assets de FilePond + motor de subida para las pantallas de subida (subir, conciliar).
+
+Los assets se sirven desde static/vendor/filepond/ y NO desde un CDN: al navegar
+con hx-boost los <script src> externos cargan async, y con jsDelivr lento quedaba
+a la vista el selector nativo del navegador antes de que FilePond lo reemplazara
+(y si el CDN estaba bloqueado, no cargaba nunca). Versiones fijadas en
+static/vendor/filepond/VERSIONES.md.
+
+Sin plugin de miniaturas a propósito: con cientos de fotos decodificar previews
+congela el navegador.
+{% endcomment %}
+<link href="{% static 'vendor/filepond/filepond.min.css' %}" rel="stylesheet">
 <style>
   .filepond--root { font-family: inherit; margin-bottom: 0; }
   .filepond--panel-root { background: #faf5ff; border: 2px dashed #c4b5fd; border-radius: 14px; }
@@ -17,12 +28,18 @@
      el bloque .fp-estado (ver _subida_zona.html). */
   .filepond--list-scroller,
   .filepond--list { display: none !important; }
+
+  /* Mientras FilePond no toma el input, se esconde el selector nativo: al
+     navegar con hx-boost los <script src> cargan async y quedaba a la vista el
+     "Sin archivos seleccionados" crudo del navegador. El atributo lo pone y lo
+     quita el JS, así que sin JavaScript el input se ve y sigue funcionando. */
+  .filepond-input[data-esperando] { display: none; }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/filepond-plugin-file-validate-type@1/dist/filepond-plugin-file-validate-type.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/filepond-plugin-file-validate-size@2/dist/filepond-plugin-file-validate-size.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/filepond-plugin-image-resize@2/dist/filepond-plugin-image-resize.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/filepond-plugin-image-transform@3/dist/filepond-plugin-image-transform.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/filepond@4/dist/filepond.min.js"></script>
+<script src="{% static 'vendor/filepond/filepond-plugin-file-validate-type.min.js' %}"></script>
+<script src="{% static 'vendor/filepond/filepond-plugin-file-validate-size.min.js' %}"></script>
+<script src="{% static 'vendor/filepond/filepond-plugin-image-resize.min.js' %}"></script>
+<script src="{% static 'vendor/filepond/filepond-plugin-image-transform.min.js' %}"></script>
+<script src="{% static 'vendor/filepond/filepond.min.js' %}"></script>
 
 <script>
   // Motor de subida compartido. Se define una sola vez en window porque hx-boost
@@ -62,6 +79,18 @@
       }
 
       var raiz = input.closest('form') || document;
+      var elCargando = raiz.querySelector('.fp-cargando');
+
+      // Se tapa el input nativo y se muestra el marcador hasta que FilePond
+      // esté listo. Como esto vive en JS, sin JavaScript nada se oculta.
+      input.setAttribute('data-esperando', '');
+      if (elCargando) elCargando.style.display = '';
+
+      function mostrarInputNativo() {
+        input.removeAttribute('data-esperando');
+        if (elCargando) elCargando.style.display = 'none';
+      }
+
       var elEstado = raiz.querySelector('.fp-estado');
       var elBarra = raiz.querySelector('.fp-barra');
       var elTexto = raiz.querySelector('.fp-texto');
@@ -84,7 +113,8 @@
       (function esperarFilePond() {
         if (!window.FilePond) {
           if (intentos++ > 100) {          // ~10 s: el CDN no cargó (red del celular, bloqueo…)
-            // Se deja el <input type="file"> nativo: el POST normal sigue funcionando.
+            // Se devuelve el selector nativo: el POST normal sigue funcionando.
+            mostrarInputNativo();
             if (elEstado && elTexto) {
               elEstado.style.display = '';
               elTexto.textContent = 'No se pudo cargar el componente de subida; se usará el selector básico del navegador.';
@@ -99,6 +129,7 @@
 
       function arrancar() {
         input.dataset.pond = '1';
+        mostrarInputNativo();   // FilePond ya va a absorberlo y darle su propio estilo
         FilePond.registerPlugin(
           FilePondPluginFileValidateType,
           FilePondPluginFileValidateSize,
