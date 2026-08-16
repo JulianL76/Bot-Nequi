@@ -1,0 +1,23 @@
+{# Zona de subida (input + progreso). Espera `guardadas` en el contexto.
+   Va dentro del <form>; el motor lo enlaza por clases (ver _filepond_head.html). #}
+<input type="file" name="imagenes" multiple accept="image/*" class="filepond-input">
+
+{# Progreso de la subida en curso (una petición por imagen). #}
+<div class="fp-estado mt-3" style="display: none;">
+  <div class="h-2 w-full rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+    <div class="fp-barra h-full bg-violet-600 dark:bg-violet-500 rounded-full transition-all duration-200" style="width: 0%"></div>
+  </div>
+  <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+    <span class="fp-texto text-slate-600 dark:text-slate-300"></span>
+    <button type="button" class="fp-reintentar font-medium text-amber-600 dark:text-amber-400 underline underline-offset-2" style="display: none;">Reintentar</button>
+  </div>
+</div>
+
+{# Imágenes ya guardadas en el servidor: sobreviven a recargas y a cerrar la página. #}
+<div class="fp-guardadas mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-violet-50 dark:bg-violet-900/20 px-3 py-2 text-sm"
+     {% if not guardadas %}style="display: none;"{% endif %}>
+  <span class="fp-guardadas-txt font-medium text-violet-700 dark:text-violet-300">
+    {{ guardadas }} {% if guardadas == 1 %}imagen guardada, lista{% else %}imágenes guardadas, listas{% endif %} para {{ verbo|default:"procesar" }}
+  </span>
+  <button type="button" class="fp-descartar text-slate-500 dark:text-slate-400 underline underline-offset-2">Descartar</button>
+</div>

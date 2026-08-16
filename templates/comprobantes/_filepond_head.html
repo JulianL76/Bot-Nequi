@@ -1,4 +1,4 @@
-{# Assets de FilePond + tema violeta para las pantallas de subida (subir, conciliar). #}
+{# Assets de FilePond + motor de subida para las pantallas de subida (subir, conciliar). #}
 {# Sin plugin de miniaturas a propósito: con cientos de fotos decodificar previews congela el navegador. #}
 <link href="https://cdn.jsdelivr.net/npm/filepond@4/dist/filepond.min.css" rel="stylesheet">
 <style>
@@ -13,14 +13,296 @@
   .filepond--credits { display: none; }
 
   /* Sin lista de archivos: con cientos de imágenes, una fila por cada una
-     estira la página muchísimo. Se oculta y se muestra solo un contador. */
+     estira la página muchísimo. Se oculta y el progreso real lo muestra
+     el bloque .fp-estado (ver _subida_zona.html). */
   .filepond--list-scroller,
   .filepond--list { display: none !important; }
-  .fp-contador { margin-top: .5rem; font-size: .875rem; color: #6d28d9; font-weight: 500; }
-  .dark .fp-contador { color: #c4b5fd; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/filepond-plugin-file-validate-type@1/dist/filepond-plugin-file-validate-type.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/filepond-plugin-file-validate-size@2/dist/filepond-plugin-file-validate-size.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/filepond-plugin-image-resize@2/dist/filepond-plugin-image-resize.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/filepond-plugin-image-transform@3/dist/filepond-plugin-image-transform.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/filepond@4/dist/filepond.min.js"></script>
+
+<script>
+  // Motor de subida compartido. Se define una sola vez en window porque hx-boost
+  // reejecuta los scripts del body en cada navegación (ver IIFE de abajo).
+  //
+  // Estrategia: UNA PETICIÓN POR IMAGEN, en cuanto se selecciona.
+  // El envío único con las N imágenes dentro (storeAsFile + POST gigante) fallaba
+  // en Android: transformar 100 fotos con canvas agota la memoria del navegador,
+  // los inputs ocultos nunca se rellenaban y el formulario acababa enviándose
+  // vacío ("parece que sube pero no sube nada"). Ahora cada imagen viaja en su
+  // propia petición pequeña, se reintenta sola si falla y queda guardada en el
+  // servidor (lote borrador), así que nada se pierde al recargar o cambiar de red.
+  (function () {
+    if (window.initPondSubida) return;
+
+    window.initPondSubida = function (cfg) {
+      var input = document.querySelector('.filepond-input');
+      if (!input || input.dataset.pond) return;
+
+      var raiz = input.closest('form') || document;
+      var elEstado = raiz.querySelector('.fp-estado');
+      var elBarra = raiz.querySelector('.fp-barra');
+      var elTexto = raiz.querySelector('.fp-texto');
+      var btnReintentar = raiz.querySelector('.fp-reintentar');
+      var elGuardadas = raiz.querySelector('.fp-guardadas');
+      var elGuardadasTxt = raiz.querySelector('.fp-guardadas-txt');
+      var btnDescartar = raiz.querySelector('.fp-descartar');
+      var btnEnviar = raiz.querySelector('button[type="submit"]');
+      var txtEnviar = raiz.querySelector('#btn-text');
+
+      // hx-boost cambia el body sin recargar: el pond de la visita anterior
+      // seguiría vivo (con sus archivos en memoria) apuntando a un DOM muerto.
+      if (window.__pondAnterior) {
+        try { window.__pondAnterior.destroy(); } catch (e) {}
+        window.__pondAnterior = null;
+      }
+      window.__pondEstado = null;
+
+      var intentos = 0;
+      (function esperarFilePond() {
+        if (!window.FilePond) {
+          if (intentos++ > 100) {          // ~10 s: el CDN no cargó (red del celular, bloqueo…)
+            // Se deja el <input type="file"> nativo: el POST normal sigue funcionando.
+            if (elEstado && elTexto) {
+              elEstado.style.display = '';
+              elTexto.textContent = 'No se pudo cargar el componente de subida; se usará el selector básico del navegador.';
+              if (elBarra) elBarra.parentNode.style.display = 'none';
+            }
+            return;
+          }
+          return setTimeout(esperarFilePond, 100);
+        }
+        arrancar();
+      })();
+
+      function arrancar() {
+        input.dataset.pond = '1';
+        FilePond.registerPlugin(
+          FilePondPluginFileValidateType,
+          FilePondPluginFileValidateSize,
+          FilePondPluginImageResize,
+          FilePondPluginImageTransform
+        );
+
+        var guardadas = cfg.guardadas || 0;   // ya en el servidor (sesiones previas)
+        var agregadas = 0;                    // seleccionadas en esta sesión
+        var subidas = 0;                      // subidas OK en esta sesión
+        var reintentos = {};                  // id de archivo -> reintentos automáticos
+        var avisoError = false;
+
+        var pond = FilePond.create(input, {
+          name: 'imagenes',
+          allowMultiple: true,
+          allowImagePreview: false,     // sin miniaturas: evita que cientos de fotos congelen el navegador
+          allowRevert: false,           // no se borra archivo a archivo; se descarta el borrador entero
+          allowReplace: false,
+          acceptedFileTypes: ['image/*'],
+          maxFileSize: '25MB',
+          maxFiles: 900,
+          credits: false,
+          itemInsertInterval: 0,        // insertar sin animación (mejor con muchos archivos)
+          instantUpload: true,          // sube en cuanto se selecciona
+          // Solo 2 en paralelo: en el celular esto limita cuántas imágenes se
+          // decodifican a la vez, que es justo lo que reventaba la memoria.
+          maxParallelUploads: 2,
+          // Compresión en el cliente: 3 MB -> ~80 KB antes de enviar.
+          allowImageResize: true,
+          imageResizeTargetWidth: 1024,
+          imageResizeTargetHeight: 1024,
+          imageResizeMode: 'contain',
+          imageResizeUpscale: false,
+          allowImageTransform: true,
+          imageTransformOutputMimeType: 'image/jpeg',
+          imageTransformOutputQuality: 82,
+          server: {
+            url: '',
+            process: {
+              url: cfg.urlArchivo,
+              method: 'POST',
+              withCredentials: true,
+              headers: { 'X-CSRFToken': cfg.csrf },
+              onerror: function (res) {
+                try { return JSON.parse(res).error; } catch (e) { return null; }
+              },
+            },
+            // Solo se usa `process`: el resto de endpoints de FilePond no aplican.
+            revert: null, load: null, fetch: null, restore: null, patch: null,
+          },
+          labelIdle: 'Arrastra o <span class="filepond--label-action">elige imágenes</span> · hasta 900',
+          labelMaxFileSizeExceeded: 'La imagen es muy grande',
+          labelFileTypeNotAllowed: 'Solo se permiten imágenes',
+        });
+
+        window.__pondAnterior = pond;
+
+        var S = FilePond.FileStatus;
+
+        function fallidos() {
+          return pond.getFiles().filter(function (f) {
+            return f.status === S.PROCESSING_ERROR || f.status === S.LOAD_ERROR;
+          });
+        }
+
+        function pintar() {
+          var errores = fallidos().length;
+          var enCurso = Math.max(agregadas - subidas - errores, 0);
+          var totalListas = guardadas + subidas;
+
+          if (elEstado) {
+            if (agregadas) {
+              elEstado.style.display = '';
+              var hechas = subidas + errores;
+              if (elBarra) elBarra.style.width = Math.round(hechas / agregadas * 100) + '%';
+              if (enCurso) {
+                elTexto.textContent = 'Subiendo ' + hechas + ' de ' + agregadas + '…';
+              } else if (errores) {
+                elTexto.textContent = subidas + ' subidas · ' + errores + ' con error';
+              } else {
+                elTexto.textContent = subidas + (subidas === 1 ? ' imagen subida' : ' imágenes subidas');
+              }
+            } else {
+              elEstado.style.display = 'none';
+            }
+          }
+
+          if (btnReintentar) {
+            btnReintentar.style.display = (errores && !enCurso) ? '' : 'none';
+            btnReintentar.textContent = 'Reintentar ' + errores + (errores === 1 ? ' fallida' : ' fallidas');
+          }
+
+          if (elGuardadas) {
+            elGuardadas.style.display = totalListas ? '' : 'none';
+            if (elGuardadasTxt) {
+              elGuardadasTxt.textContent = totalListas + (totalListas === 1
+                ? ' imagen guardada, lista para ' + cfg.verbo
+                : ' imágenes guardadas, listas para ' + cfg.verbo);
+            }
+          }
+
+          if (btnEnviar) {
+            btnEnviar.disabled = enCurso > 0 || totalListas === 0;
+            if (txtEnviar) txtEnviar.textContent = enCurso ? 'Subiendo…' : cfg.textoBoton;
+          }
+        }
+
+        pond.on('addfile', function () { agregadas++; pintar(); });
+
+        pond.on('processfile', function (error, file) {
+          if (error) {
+            // Reintento automático: en móvil los cortes de red son constantes.
+            var n = reintentos[file.id] || 0;
+            if (n < 2) {
+              reintentos[file.id] = n + 1;
+              setTimeout(function () {
+                try { pond.processFile(file.id).catch(function () {}); } catch (e) {}
+              }, 1500 * (n + 1));
+            } else if (!avisoError && window.toast) {
+              avisoError = true;
+              window.toast('Algunas imágenes no se pudieron subir. Usa "Reintentar".', 'warning');
+            }
+          } else {
+            subidas++;
+            // Quitarla del pond libera el archivo y su nodo del DOM: con 100+
+            // fotos esa memoria es la diferencia entre subir y que se trabe.
+            // revert:false → ya está guardada en el servidor, no se deshace.
+            setTimeout(function () {
+              try { pond.removeFile(file.id, { revert: false }); } catch (e) {}
+            }, 0);
+          }
+          pintar();
+        });
+
+        pond.on('processfiles', pintar);
+        pond.on('removefile', pintar);
+        pond.on('error', pintar);
+
+        if (btnReintentar) {
+          btnReintentar.addEventListener('click', function () {
+            avisoError = false;
+            fallidos().forEach(function (f) {
+              reintentos[f.id] = 0;
+              try { pond.processFile(f.id).catch(function () {}); } catch (e) {}
+            });
+            pintar();
+          });
+        }
+
+        if (btnDescartar) {
+          btnDescartar.addEventListener('click', function () {
+            if (!confirm('¿Descartar las imágenes subidas que aún no se han procesado?')) return;
+            fetch(cfg.urlDescartar, {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: { 'X-CSRFToken': cfg.csrf, 'X-Requested-With': 'XMLHttpRequest' },
+            }).then(function (r) {
+              if (!r.ok) throw new Error('http ' + r.status);
+              guardadas = 0; agregadas = 0; subidas = 0; reintentos = {};
+              pond.removeFiles();
+              pintar();
+              if (window.toast) window.toast('Imágenes descartadas', 'info');
+            }).catch(function () {
+              if (window.toast) window.toast('No se pudo descartar', 'error');
+            });
+          });
+        }
+
+        var form = raiz.tagName === 'FORM' ? raiz : document.getElementById('upload-form');
+        if (form) {
+          form.addEventListener('submit', function (e) {
+            var errores = fallidos().length;
+            var enCurso = Math.max(agregadas - subidas - errores, 0);
+
+            if (enCurso > 0) {
+              e.preventDefault();
+              if (window.toast) window.toast('Espera a que terminen de subir las imágenes.', 'warning');
+              return false;
+            }
+            if (guardadas + subidas === 0) {
+              e.preventDefault();
+              if (window.toast) window.toast('Selecciona al menos una imagen', 'warning');
+              else alert('Selecciona al menos una imagen');
+              return false;
+            }
+            if (errores && !confirm(errores + ' imagen(es) no se subieron. ¿Continuar sin ellas?')) {
+              e.preventDefault();
+              return false;
+            }
+
+            // Las imágenes ya están en el servidor: este POST solo encola el lote.
+            // Se vacía el input nativo por si el navegador aún guarda la selección,
+            // para no reenviar los archivos otra vez en un POST gigante.
+            var nativo = document.querySelector('input.filepond--browser');
+            if (nativo) { try { nativo.value = ''; } catch (err) {} }
+
+            if (btnEnviar) btnEnviar.disabled = true;
+            if (txtEnviar) txtEnviar.textContent = 'Enviando…';
+            var overlay = document.getElementById('upload-overlay');
+            if (overlay) overlay.style.display = 'flex';
+          });
+        }
+
+        // Aviso al cerrar con subidas a medias. El listener se registra una sola
+        // vez y consulta el pond vigente, así hx-boost no acumula listeners
+        // apuntando a ponds muertos.
+        window.__pondEstado = function () {
+          try { return Math.max(agregadas - subidas - fallidos().length, 0); }
+          catch (err) { return 0; }
+        };
+        if (!window.__pondUnloadListo) {
+          window.__pondUnloadListo = true;
+          window.addEventListener('beforeunload', function (e) {
+            if (window.__pondEstado && window.__pondEstado() > 0) {
+              e.preventDefault();
+              e.returnValue = '';
+            }
+          });
+        }
+
+        pintar();
+      }
+    };
+  })();
+</script>

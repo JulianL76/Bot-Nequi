@@ -11,11 +11,15 @@ from core.parsing import parse_fecha, parse_hora
 class LoteConciliacion(models.Model):
     """Un proceso de conciliación de comprobantes contra una ruta."""
 
+    # Borrador: el usuario está subiendo imágenes (una petición por imagen) y
+    # todavía no ha pulsado "Conciliar". No aparece en el historial ni se encola.
+    BORRADOR = "borrador"
     EN_COLA = "en_cola"
     PROCESANDO = "procesando"
     PAUSADO = "pausado"
     COMPLETADO = "completado"
     ESTADOS = [
+        (BORRADOR, "Borrador"),
         (EN_COLA, "En cola"),
         (PROCESANDO, "Procesando"),
         (PAUSADO, "Pausado"),

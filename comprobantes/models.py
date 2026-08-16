@@ -31,12 +31,16 @@ class Ruta(models.Model):
 class LoteCarga(models.Model):
     """Un lote de subida masiva de comprobantes procesado en segundo plano."""
 
+    # Borrador: el usuario está subiendo imágenes (una petición por imagen) y
+    # todavía no ha pulsado "Procesar". No aparece en el historial ni se encola.
+    BORRADOR = "borrador"
     EN_COLA = "en_cola"
     PROCESANDO = "procesando"
     PAUSADO = "pausado"
     COMPLETADO = "completado"
     CON_ERRORES = "con_errores"
     ESTADOS = [
+        (BORRADOR, "Borrador"),
         (EN_COLA, "En cola"),
         (PROCESANDO, "Procesando"),
         (PAUSADO, "Pausado"),

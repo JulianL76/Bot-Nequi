@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.http import require_POST
 
 from accounts.utils import get_negocio
 from core.downloads import nombre_descarga
@@ -50,33 +51,99 @@ def _excel_comprobantes(qs, filename="comprobantes.xlsx"):
     return response
 
 
+def _borrador(negocio, user, crear=False):
+    """Lote borrador del usuario: donde se acumulan las imágenes ya subidas.
+
+    Hay como mucho uno por usuario/negocio, así que las imágenes sobreviven a
+    recargas y a cambiar de pantalla; el lote solo se encola al pulsar Procesar.
+    """
+    lote = LoteCarga.objects.filter(
+        negocio=negocio, creado_por=user, estado=LoteCarga.BORRADOR
+    ).order_by("id").first()
+    if lote is None and crear:
+        lote = LoteCarga.objects.create(
+            negocio=negocio, creado_por=user, estado=LoteCarga.BORRADOR, total=0
+        )
+    return lote
+
+
+@login_required
+@require_POST
+def subir_archivo(request):
+    """Recibe UNA imagen por petición (AJAX) y la guarda en el lote borrador.
+
+    Subir las imágenes de una en una es lo que hace viable la subida desde el
+    celular: cada petición es pequeña, se reintenta sola si falla y lo ya subido
+    no se pierde si se cae la conexión a mitad de camino.
+    """
+    negocio = get_negocio(request.user)
+    if not negocio:
+        return JsonResponse({"error": "Tu usuario no tiene un negocio asignado."}, status=403)
+
+    f = request.FILES.get("imagenes") or request.FILES.get("imagen")
+    if not f:
+        return JsonResponse({"error": "No llegó ninguna imagen."}, status=400)
+
+    lote = _borrador(negocio, request.user, crear=True)
+    arch = ArchivoPendiente.objects.create(lote=lote, imagen=f)
+    # FilePond espera el id del archivo como texto plano en el cuerpo.
+    return HttpResponse(str(arch.pk), content_type="text/plain")
+
+
+@login_required
+@require_POST
+def descartar_borrador(request):
+    """Borra las imágenes acumuladas y sin procesar del usuario."""
+    negocio = get_negocio(request.user)
+    lote = _borrador(negocio, request.user) if negocio else None
+    n = 0
+    if lote:
+        n = lote.archivos.count()
+        lote.delete()  # cascada de ArchivoPendiente + señal que borra las imágenes
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return JsonResponse({"descartadas": n})
+    messages.success(request, f"Se descartaron {n} imagen(es) sin procesar.")
+    return redirect("comprobantes:subir")
+
+
 @login_required
 def subir(request):
-    """Subida masiva: guarda las imágenes, crea un lote y lo encola."""
+    """Subida masiva: encola el lote con las imágenes ya subidas al borrador."""
     negocio = get_negocio(request.user)
     if not negocio:
         messages.error(request, "Tu usuario no tiene un negocio asignado.")
         return redirect("dashboard:home")
 
     if request.method == "POST":
-        archivos = request.FILES.getlist("imagenes")
-        if not archivos:
-            messages.error(request, "Selecciona al menos una imagen.")
-            return redirect("comprobantes:subir")
-
         from django.db import transaction
+
         with transaction.atomic():
-            lote = LoteCarga.objects.create(
-                negocio=negocio, creado_por=request.user, total=len(archivos)
-            )
-            # Solo se guarda la imagen pendiente; el comprobante se crea tras analizar.
-            for f in archivos:
-                ArchivoPendiente.objects.create(lote=lote, imagen=f)
+            lote = _borrador(negocio, request.user)
+            # Respaldo sin JS (FilePond no cargó): el POST trae los archivos.
+            sueltos = request.FILES.getlist("imagenes")
+            if sueltos:
+                lote = lote or _borrador(negocio, request.user, crear=True)
+                for f in sueltos:
+                    ArchivoPendiente.objects.create(lote=lote, imagen=f)
+
+            total = lote.archivos.count() if lote else 0
+            if not total:
+                messages.error(request, "Selecciona al menos una imagen.")
+                return redirect("comprobantes:subir")
+
+            lote.total = total
+            lote.estado = LoteCarga.EN_COLA
+            lote.save(update_fields=["total", "estado"])
+
         procesar_lote.delay(lote.id)
-        messages.success(request, f"Lote #{lote.id} en proceso ({len(archivos)} imágenes).")
+        messages.success(request, f"Lote #{lote.id} en proceso ({total} imágenes).")
         return redirect("comprobantes:lote_detalle", lote_id=lote.id)
 
-    return render(request, "comprobantes/subir.html", {"negocio": negocio})
+    lote = _borrador(negocio, request.user)
+    return render(request, "comprobantes/subir.html", {
+        "negocio": negocio,
+        "guardadas": lote.archivos.count() if lote else 0,
+    })
 
 
 @login_required
@@ -512,7 +579,8 @@ def notificaciones(request):
 def lotes(request):
     """Historial de subidas (lotes de carga)."""
     negocio = get_negocio(request.user)
-    qs = LoteCarga.objects.filter(negocio=negocio) if negocio else LoteCarga.objects.none()
+    qs = (LoteCarga.objects.filter(negocio=negocio).exclude(estado=LoteCarga.BORRADOR)
+          if negocio else LoteCarga.objects.none())
     paginator = Paginator(qs, 20)
     page = paginator.get_page(request.GET.get("page"))
     return render(request, "comprobantes/lotes.html", {"page": page})

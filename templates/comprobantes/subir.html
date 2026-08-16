@@ -9,97 +9,40 @@
 <h1 class="text-2xl font-bold mb-4">Subir comprobantes</h1>
 <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow max-w-2xl relative overflow-hidden">
   <form id="upload-form" method="post" enctype="multipart/form-data" hx-boost="false">{% csrf_token %}
-    <input type="file" name="imagenes" multiple accept="image/*" class="filepond-input">
-    <div class="fp-contador"></div>
-    <div class="text-sm text-slate-500 dark:text-slate-400 mt-2">Puedes subir muchas a la vez (se procesan en lotes de 30).</div>
-    
+    {% include "comprobantes/_subida_zona.html" with verbo="procesar" %}
+
+    <div class="text-sm text-slate-500 dark:text-slate-400 mt-3">
+      Cada imagen se sube por separado, así que puedes seguir agregando más y lo ya subido no se pierde.
+      El análisis se hace en lotes de 30.
+    </div>
+
     <button id="btn-procesar" type="submit" class="mt-5 inline-flex items-center gap-2 bg-violet-600 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
       <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
       <span id="btn-text">Procesar</span>
     </button>
   </form>
 
-  <!-- Overlay de carga durante la subida al servidor -->
+  <!-- Overlay mientras el servidor crea el lote y lo encola -->
   <div id="upload-overlay" style="display: none;" class="absolute inset-0 bg-white/95 dark:bg-slate-800/95 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center z-20">
     <div class="w-12 h-12 border-4 border-violet-200 dark:border-violet-900 border-t-violet-600 dark:border-t-violet-400 rounded-full animate-spin mb-4"></div>
-    <h3 class="font-bold text-lg text-slate-800 dark:text-slate-100" id="upload-title">Subiendo imágenes...</h3>
+    <h3 class="font-bold text-lg text-slate-800 dark:text-slate-100" id="upload-title">Preparando el lote...</h3>
     <p class="text-sm text-slate-500 dark:text-slate-400 mt-2 max-w-sm" id="upload-msg">
-      Enviando archivos al servidor. Por favor no cierres esta página; este proceso puede tardar unos minutos según tu velocidad de internet.
+      Ya está todo subido; ahora se encola el análisis. Tarda solo un momento.
     </p>
   </div>
 </div>
 
 <script>
   (function () {
-    var input = document.querySelector('.filepond-input');
-    if (!input || input.dataset.pond) return;
-    var intentos = 0;
-    (function go() {
-      if (!window.FilePond) {              // espera a que cargue el script del CDN
-        if (intentos++ > 60) return;       // ~6s máx
-        return setTimeout(go, 100);
-      }
-      input.dataset.pond = '1';
-      FilePond.registerPlugin(
-        FilePondPluginFileValidateType,
-        FilePondPluginFileValidateSize,
-        FilePondPluginImageResize,
-        FilePondPluginImageTransform
-      );
-      var contador = document.querySelector('.fp-contador');
-      var pond = FilePond.create(input, {
-        name: 'imagenes',
-        allowMultiple: true,
-        storeAsFile: true,            // mantiene los File reales para el POST normal de Django
-        allowImagePreview: false,     // sin miniaturas: evita que cientos de fotos congelen el navegador
-        acceptedFileTypes: ['image/*'],
-        maxFileSize: '25MB',
-        maxFiles: 900,
-        credits: false,
-        itemInsertInterval: 0,       // insertar sin animación (mejor con muchos archivos)
-        // Compresión ultra-rápida en el cliente: convierte 3MB -> 80KB en el navegador.
-        // Permite enviar 500 imágenes en 2-4 segundos.
-        allowImageResize: true,
-        imageResizeTargetWidth: 1024,
-        imageResizeTargetHeight: 1024,
-        imageResizeMode: 'contain',
-        imageResizeUpscale: false,
-        allowImageTransform: true,
-        imageTransformOutputMimeType: 'image/jpeg',
-        imageTransformOutputQuality: 82,
-        labelIdle: 'Arrastra o <span class="filepond--label-action">elige imágenes</span> · hasta 900',
-        labelMaxFileSizeExceeded: 'La imagen es muy grande',
-        labelFileTypeNotAllowed: 'Solo se permiten imágenes',
-      });
-      function actualizarContador() {
-        var n = pond.getFiles().length;
-        contador.textContent = n ? n + (n === 1 ? ' imagen seleccionada' : ' imágenes seleccionadas') : '';
-      }
-      pond.on('addfile', actualizarContador);
-      pond.on('removefile', actualizarContador);
-
-      // Manejo de envío de formulario con indicador de progreso
-      var form = document.getElementById('upload-form');
-      var btn = document.getElementById('btn-procesar');
-      var btnText = document.getElementById('btn-text');
-      var overlay = document.getElementById('upload-overlay');
-      var title = document.getElementById('upload-title');
-
-      form.addEventListener('submit', function (e) {
-        var n = pond ? pond.getFiles().length : 0;
-        if (!n) {
-          e.preventDefault();
-          if (window.toast) window.toast('Selecciona al menos una imagen', 'warning');
-          else alert('Selecciona al menos una imagen');
-          return false;
-        }
-
-        btn.disabled = true;
-        btnText.textContent = 'Subiendo ' + n + ' imágenes...';
-        title.textContent = 'Subiendo ' + n + ' imágenes al servidor';
-        overlay.style.display = 'flex';
-      });
-    })();
+    if (!window.initPondSubida) return;
+    window.initPondSubida({
+      urlArchivo: "{% url 'comprobantes:subir_archivo' %}",
+      urlDescartar: "{% url 'comprobantes:descartar_borrador' %}",
+      csrf: "{{ csrf_token }}",
+      guardadas: {{ guardadas|default:0 }},
+      textoBoton: 'Procesar',
+      verbo: 'procesar',
+    });
   })();
 </script>
 {% endblock %}

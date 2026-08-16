@@ -6,6 +6,8 @@ app_name = "conciliaciones"
 
 urlpatterns = [
     path("", views.conciliar, name="conciliar"),
+    path("archivo/", views.conciliar_archivo, name="conciliar_archivo"),
+    path("descartar/", views.descartar_borrador, name="descartar_borrador"),
     path("historial/", views.lista, name="lista"),
     path("panel/", views.panel, name="panel"),
     path("panel/exportar/", views.exportar_panel, name="exportar_panel"),

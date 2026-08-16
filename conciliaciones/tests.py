@@ -1,9 +1,29 @@
+import io
+import shutil
+import tempfile
 from datetime import date
-from django.test import TestCase
-from accounts.models import Negocio
+from unittest.mock import patch
+
+from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
+from django.urls import reverse
+
+from accounts.models import Negocio, PerfilUsuario
 from comprobantes.models import Comprobante, Ruta
 from conciliaciones.models import Conciliacion, LoteConciliacion
 from conciliaciones.tasks import validar_y_emparejar, _comp_candidato
+
+_MEDIA_TMP = tempfile.mkdtemp()
+
+
+def _imagen(nombre="foto.jpg"):
+    """Un JPEG mínimo válido (ImageField lo verifica con Pillow)."""
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), "white").save(buf, format="JPEG")
+    return SimpleUploadedFile(nombre, buf.getvalue(), content_type="image/jpeg")
 
 
 class EmparejamientoVoucherTest(TestCase):
@@ -93,3 +113,65 @@ class ParseHoraTest(TestCase):
         self.assertEqual(parse_hora("12:00 AM"), time(0, 0))
         self.assertEqual(parse_hora("12:00 PM"), time(12, 0))
 
+
+
+@override_settings(MEDIA_ROOT=_MEDIA_TMP)
+class SubidaPorArchivoConciliarTest(TestCase):
+    """Subida imagen a imagen: la ruta se aplica al cerrar el lote, no al subir."""
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(_MEDIA_TMP, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.negocio = Negocio.objects.create(nombre="Test")
+        self.ruta = Ruta.objects.create(negocio=self.negocio, numero=7)
+        self.user = User.objects.create_user("u1", password="x")
+        PerfilUsuario.objects.create(user=self.user, negocio=self.negocio)
+        self.client.force_login(self.user)
+
+    def _subir(self, n=3):
+        for i in range(n):
+            r = self.client.post(reverse("conciliaciones:conciliar_archivo"),
+                                 {"imagenes": _imagen(f"f{i}.jpg")})
+            self.assertEqual(r.status_code, 200)
+
+    def test_las_imagenes_se_acumulan_en_un_borrador_sin_ruta(self):
+        self._subir(3)
+        lote = LoteConciliacion.objects.get(estado=LoteConciliacion.BORRADOR)
+        self.assertIsNone(lote.ruta)
+        self.assertEqual(lote.items.count(), 3)
+
+    def test_el_borrador_sobrevive_a_recargar_la_pagina(self):
+        self._subir(2)
+        r = self.client.get(reverse("conciliaciones:conciliar"))
+        self.assertEqual(r.context["guardadas"], 2)
+
+    def test_conciliar_aplica_la_ruta_al_lote_y_a_sus_items(self):
+        self._subir(3)
+        with patch("conciliaciones.views.procesar_conciliacion.delay") as delay:
+            self.client.post(reverse("conciliaciones:conciliar"), {"ruta": self.ruta.id})
+        lote = LoteConciliacion.objects.get()
+        self.assertEqual((lote.estado, lote.total, lote.ruta), (LoteConciliacion.EN_COLA, 3, self.ruta))
+        self.assertEqual(lote.items.filter(ruta=self.ruta).count(), 3)
+        delay.assert_called_once_with(lote.id)
+
+    def test_respaldo_sin_js_sigue_aceptando_el_post_con_los_archivos(self):
+        with patch("conciliaciones.views.procesar_conciliacion.delay"):
+            self.client.post(reverse("conciliaciones:conciliar"),
+                             {"ruta": self.ruta.id, "imagenes": [_imagen("a.jpg"), _imagen("b.jpg")]})
+        lote = LoteConciliacion.objects.get()
+        self.assertEqual((lote.estado, lote.total), (LoteConciliacion.EN_COLA, 2))
+        self.assertEqual(lote.items.filter(ruta=self.ruta).count(), 2)
+
+    def test_descartar_borra_las_imagenes_pendientes(self):
+        self._subir(2)
+        self.client.post(reverse("conciliaciones:descartar_borrador"))
+        self.assertFalse(LoteConciliacion.objects.exists())
+        self.assertFalse(Conciliacion.objects.exists())
+
+    def test_el_borrador_no_aparece_ni_en_el_historial_ni_en_el_panel(self):
+        self._subir(2)
+        self.assertEqual(list(self.client.get(reverse("conciliaciones:lista")).context["page"]), [])
+        self.assertEqual(list(self.client.get(reverse("conciliaciones:panel")).context["page"]), [])

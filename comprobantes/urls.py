@@ -6,6 +6,8 @@ app_name = "comprobantes"
 
 urlpatterns = [
     path("subir/", views.subir, name="subir"),
+    path("subir/archivo/", views.subir_archivo, name="subir_archivo"),
+    path("subir/descartar/", views.descartar_borrador, name="descartar_borrador"),
     path("subidas/", views.lotes, name="lotes"),
     path("subidas/en-proceso/", views.en_proceso, name="en_proceso"),
     path("lote/<int:lote_id>/", views.lote_detalle, name="lote_detalle"),

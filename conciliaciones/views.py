@@ -5,6 +5,7 @@ from django.db.models import Count, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.views.decorators.http import require_POST
 
 from accounts.utils import get_negocio
 from comprobantes.models import Comprobante, Ruta
@@ -50,7 +51,9 @@ def _filtrar_conciliaciones(request, negocio):
     """
     import datetime
 
+    # Se excluyen los borradores: son imágenes aún subiéndose, sin datos todavía.
     qs = (Conciliacion.objects.filter(negocio=negocio)
+          .exclude(lote__estado=LoteConciliacion.BORRADOR)
           .select_related("lote", "lote__ruta", "ruta", "comprobante")
           if negocio else Conciliacion.objects.none())
 
@@ -127,7 +130,8 @@ def _recontar_lote(lote):
 def lista(request):
     """Historial de conciliaciones (lotes de conciliación)."""
     negocio = get_negocio(request.user)
-    qs = (LoteConciliacion.objects.filter(negocio=negocio).select_related("ruta")
+    qs = (LoteConciliacion.objects.filter(negocio=negocio)
+          .exclude(estado=LoteConciliacion.BORRADOR).select_related("ruta")
           .annotate(n_obs=Count("items", filter=~Q(items__observaciones="")))
           .order_by("-creado_en")
           if negocio else LoteConciliacion.objects.none())
@@ -202,6 +206,60 @@ def exportar_panel(request):
     return _excel_conciliaciones(qs.order_by("-fecha_dt", "-hora", "-id"), nombre)
 
 
+def _borrador(negocio, user, crear=False):
+    """Lote borrador del usuario: donde se acumulan las imágenes ya subidas.
+
+    La ruta no se fija aquí (se elige al pulsar Conciliar), así que el usuario
+    puede ir subiendo fotos antes de decidirla.
+    """
+    lote = LoteConciliacion.objects.filter(
+        negocio=negocio, creado_por=user, estado=LoteConciliacion.BORRADOR
+    ).order_by("id").first()
+    if lote is None and crear:
+        lote = LoteConciliacion.objects.create(
+            negocio=negocio, creado_por=user, estado=LoteConciliacion.BORRADOR, total=0
+        )
+    return lote
+
+
+@login_required
+@require_POST
+def conciliar_archivo(request):
+    """Recibe UNA imagen por petición (AJAX) y la guarda en el lote borrador.
+
+    Una petición por imagen es lo que hace viable subir desde el celular: cada
+    envío es pequeño, se reintenta solo si falla y lo ya subido no se pierde.
+    """
+    negocio = get_negocio(request.user)
+    if not negocio:
+        return JsonResponse({"error": "Tu usuario no tiene un negocio asignado."}, status=403)
+
+    f = request.FILES.get("imagenes") or request.FILES.get("imagen")
+    if not f:
+        return JsonResponse({"error": "No llegó ninguna imagen."}, status=400)
+
+    lote = _borrador(negocio, request.user, crear=True)
+    item = Conciliacion.objects.create(negocio=negocio, lote=lote, imagen=f)
+    # FilePond espera el id del archivo como texto plano en el cuerpo.
+    return HttpResponse(str(item.pk), content_type="text/plain")
+
+
+@login_required
+@require_POST
+def descartar_borrador(request):
+    """Borra las imágenes acumuladas y sin conciliar del usuario."""
+    negocio = get_negocio(request.user)
+    lote = _borrador(negocio, request.user) if negocio else None
+    n = 0
+    if lote:
+        n = lote.items.count()
+        lote.delete()  # cascada de Conciliacion + señal que borra las imágenes
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return JsonResponse({"descartadas": n})
+    messages.success(request, f"Se descartaron {n} imagen(es) sin conciliar.")
+    return redirect("conciliaciones:conciliar")
+
+
 @login_required
 def conciliar(request):
     """Sube imágenes asociadas a una ruta y lanza la conciliación."""
@@ -214,23 +272,40 @@ def conciliar(request):
 
     if request.method == "POST":
         ruta = get_object_or_404(Ruta, pk=request.POST.get("ruta"), negocio=negocio)
-        archivos = request.FILES.getlist("imagenes")
-        if not archivos:
-            messages.error(request, "Selecciona al menos una imagen.")
-            return redirect("conciliaciones:conciliar")
 
         from django.db import transaction
         with transaction.atomic():
-            lote = LoteConciliacion.objects.create(
-                negocio=negocio, creado_por=request.user, ruta=ruta, total=len(archivos)
-            )
-            for f in archivos:
-                Conciliacion.objects.create(negocio=negocio, lote=lote, ruta=ruta, imagen=f)
+            lote = _borrador(negocio, request.user)
+            # Respaldo sin JS (FilePond no cargó): el POST trae los archivos.
+            sueltos = request.FILES.getlist("imagenes")
+            if sueltos:
+                lote = lote or _borrador(negocio, request.user, crear=True)
+                for f in sueltos:
+                    Conciliacion.objects.create(negocio=negocio, lote=lote, imagen=f)
+
+            total = lote.items.count() if lote else 0
+            if not total:
+                messages.error(request, "Selecciona al menos una imagen.")
+                return redirect("conciliaciones:conciliar")
+
+            # La ruta se elige al conciliar, no al subir: se aplica ahora al lote
+            # y a todas sus imágenes.
+            lote.ruta = ruta
+            lote.total = total
+            lote.estado = LoteConciliacion.EN_COLA
+            lote.save(update_fields=["ruta", "total", "estado"])
+            lote.items.update(ruta=ruta)
+
         procesar_conciliacion.delay(lote.id)
-        messages.success(request, f"Conciliación #{lote.id} en proceso ({len(archivos)} imágenes).")
+        messages.success(request, f"Conciliación #{lote.id} en proceso ({total} imágenes).")
         return redirect("conciliaciones:lote_detalle", lote_id=lote.id)
 
-    return render(request, "conciliaciones/conciliar.html", {"negocio": negocio, "rutas": rutas})
+    lote = _borrador(negocio, request.user)
+    return render(request, "conciliaciones/conciliar.html", {
+        "negocio": negocio,
+        "rutas": rutas,
+        "guardadas": lote.items.count() if lote else 0,
+    })
 
 
 @login_required
