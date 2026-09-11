@@ -18,7 +18,7 @@ from django.utils import timezone
 
 from accounts.utils import get_perfil
 from comprobantes.models import Comprobante
-from comprobantes.notifications import notificar_inapp, notificar_telegram
+from comprobantes.notifications import notificar_inapp, notificar_push, notificar_telegram
 from comprobantes.tasks import BACKOFF_429, PAUSA_ENTRE_IMAGENES, PAUSA_ENTRE_LOTES, _chunks
 from core.extraction import analizar_comprobante_sync
 from core.parsing import (limpiar_monto, nombres_coinciden, numeros_coinciden,
@@ -341,6 +341,8 @@ def _notificar_fin(lote: LoteConciliacion):
                f"Revisión: {lote.revision} · Duplicados: {lote.duplicados}")
     if lote.creado_por:
         notificar_inapp(lote.creado_por, titulo, mensaje)
+        notificar_push(lote.creado_por, titulo, mensaje,
+                       url=f"/conciliar/lote/{lote.pk}/")
         perfil = get_perfil(lote.creado_por)
         if perfil and perfil.telegram_id:
             notificar_telegram(perfil.telegram_id, f"✅ <b>{titulo}</b>\n{mensaje}")

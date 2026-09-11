@@ -25,6 +25,14 @@ GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.2-11b-vision-preview")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
+# Proveedor que se intenta primero. Por defecto Gemini: el modelo de visión de
+# Groq de arriba está dado de baja ("has been decommissioned"), así que con Groq
+# primero cada imagen gastaba una subida en base64 que siempre fallaba con 400
+# antes de caer al respaldo. Volver a "groq" cuando GROQ_MODEL apunte a un modelo
+# vigente. El archivo preferred_ia.json (que fija el bot de Telegram) tiene
+# prioridad sobre esto.
+IA_PREFERIDA = os.getenv("IA_PREFERIDA", "gemini")
+
 # --- Límites oficiales Groq free tier --------------------------------------
 GROQ_RPD = 1000    # requests per day
 GROQ_RPM = 30      # requests per minute

@@ -20,6 +20,9 @@ django-celery-beat
 groq
 google-genai
 
+# --- Notificaciones push (PWA) ---
+pywebpush              # Web Push con VAPID; genera las llaves con `manage.py gen_vapid`
+
 # --- Utilidades ---
 python-dotenv
 gunicorn               # servidor WSGI para producción (Linux)

@@ -47,13 +47,14 @@ def increment_quota(tokens: int = 0):
 
 
 def get_preferred_ia() -> str:
+    """Proveedor a intentar primero: el archivo manda, si no el default del entorno."""
     try:
         if os.path.exists(config.PREFERRED_IA_FILE):
             with open(config.PREFERRED_IA_FILE, "r") as f:
-                return json.load(f).get("ia", "groq")
+                return json.load(f).get("ia", config.IA_PREFERIDA)
     except Exception:
         pass
-    return "groq"
+    return config.IA_PREFERIDA
 
 
 def set_preferred_ia(ia: str):

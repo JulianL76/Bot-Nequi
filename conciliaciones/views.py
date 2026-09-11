@@ -10,6 +10,7 @@ from django.views.decorators.http import require_POST
 from accounts.utils import get_negocio
 from comprobantes.models import Comprobante, Ruta
 from core.downloads import nombre_descarga
+from core.imagenes import ImagenEnBlanco, esta_en_blanco
 from core.zips import ResumenZip, ZipInvalido, es_zip, imagenes_de_zip
 
 from .models import Conciliacion, LoteConciliacion
@@ -229,6 +230,12 @@ def _guardar_subida(negocio, lote, f):
     Devuelve `(imagenes_guardadas, entradas_omitidas)`.
     """
     if not es_zip(f):
+        # Ver comprobantes.views._guardar_subida: imagen lisa = canvas fallido.
+        if esta_en_blanco(f):
+            raise ImagenEnBlanco(
+                "La imagen llegó en blanco (falló el redimensionado en el "
+                "celular). Se volverá a subir sin comprimir."
+            )
         Conciliacion.objects.create(negocio=negocio, lote=lote, imagen=f)
         return 1, 0
 
@@ -241,32 +248,33 @@ def _guardar_subida(negocio, lote, f):
 @login_required
 @require_POST
 def conciliar_archivo(request):
-    """Recibe UN archivo por petición (AJAX) y lo guarda en el lote borrador.
+    """Recibe una TANDA de archivos (AJAX) y los guarda en el lote borrador.
 
-    Una petición por archivo es lo que hace viable subir desde el celular: cada
-    envío es pequeño, se reintenta solo si falla y lo ya subido no se pierde. Un
-    .zip cuenta como un archivo aquí y se expande en el servidor.
+    Ver comprobantes.views.subir_archivo: se agrupan para recortar viajes de red
+    sin perder el reintento por archivo.
     """
     negocio = get_negocio(request.user)
     if not negocio:
         return JsonResponse({"error": "Tu usuario no tiene un negocio asignado."}, status=403)
 
-    f = request.FILES.get("imagenes") or request.FILES.get("imagen")
-    if not f:
+    archivos = request.FILES.getlist("imagenes") or request.FILES.getlist("imagen")
+    if not archivos:
         return JsonResponse({"error": "No llegó ningún archivo."}, status=400)
 
     lote = _borrador(negocio, request.user, crear=True)
-    try:
-        n, omitidas = _guardar_subida(negocio, lote, f)
-    except ZipInvalido as e:
-        return JsonResponse({"error": str(e)}, status=400)
-
-    if not n:
-        return JsonResponse({"error": "El .zip no contiene imágenes en un formato admitido."},
-                            status=400)
-    # FilePond guarda este cuerpo como id del archivo; el front lee `n` de ahí
-    # para saber cuántas imágenes entraron (un zip aporta muchas de una vez).
-    return JsonResponse({"n": n, "omitidas": omitidas})
+    # Un resultado por archivo, en el mismo orden en que llegaron.
+    resultados = []
+    for f in archivos:
+        try:
+            n, omitidas = _guardar_subida(negocio, lote, f)
+        except (ImagenEnBlanco, ZipInvalido) as e:
+            resultados.append({"error": str(e)})
+            continue
+        if not n:
+            resultados.append({"error": "El .zip no contiene imágenes en un formato admitido."})
+        else:
+            resultados.append({"n": n, "omitidas": omitidas})
+    return JsonResponse({"resultados": resultados})
 
 
 @login_required
@@ -308,7 +316,7 @@ def conciliar(request):
                 for f in sueltos:
                     try:
                         _guardar_subida(negocio, lote, f)
-                    except ZipInvalido as e:
+                    except (ZipInvalido, ImagenEnBlanco) as e:
                         messages.warning(request, f"{f.name}: {e}")
 
             total = lote.items.count() if lote else 0

@@ -7,6 +7,7 @@ from django.views.decorators.http import require_POST
 
 from accounts.utils import get_negocio
 from core.downloads import nombre_descarga
+from core.imagenes import ImagenEnBlanco, esta_en_blanco
 from core.zips import ResumenZip, ZipInvalido, es_zip, imagenes_de_zip
 
 from django.db.models import Count, Q
@@ -74,6 +75,14 @@ def _guardar_subida(lote, f):
     Devuelve `(imagenes_guardadas, entradas_omitidas)`.
     """
     if not es_zip(f):
+        # Guarda contra el bug del redimensionado en el navegador: cuando el
+        # canvas del celular no alcanza a dibujar la foto, sube una imagen lisa
+        # (negra). Antes se guardaba igual y solo se notaba al fallar el análisis.
+        if esta_en_blanco(f):
+            raise ImagenEnBlanco(
+                "La imagen llegó en blanco (falló el redimensionado en el "
+                "celular). Se volverá a subir sin comprimir."
+            )
         ArchivoPendiente.objects.create(lote=lote, imagen=f)
         return 1, 0
 
@@ -86,33 +95,36 @@ def _guardar_subida(lote, f):
 @login_required
 @require_POST
 def subir_archivo(request):
-    """Recibe UN archivo por petición (AJAX) y lo guarda en el lote borrador.
+    """Recibe una TANDA de archivos (AJAX) y los guarda en el lote borrador.
 
-    Subir de a un archivo es lo que hace viable la subida desde el celular: cada
-    petición es pequeña, se reintenta sola si falla y lo ya subido no se pierde
-    si se cae la conexión a mitad de camino. Un .zip cuenta como un archivo aquí
-    y se expande en el servidor a tantas imágenes como traiga dentro.
+    Van en tandas y no de a uno porque con 400 capturas de ~80 KB el costo no
+    es el peso sino la cantidad de viajes de red: agrupar los recorta sin perder
+    el reintento por archivo, ya que cada uno trae su propio resultado y uno
+    malo no arrastra a los buenos. Un .zip cuenta como un archivo de la tanda y
+    se expande a tantas imágenes como traiga dentro.
     """
     negocio = get_negocio(request.user)
     if not negocio:
         return JsonResponse({"error": "Tu usuario no tiene un negocio asignado."}, status=403)
 
-    f = request.FILES.get("imagenes") or request.FILES.get("imagen")
-    if not f:
+    archivos = request.FILES.getlist("imagenes") or request.FILES.getlist("imagen")
+    if not archivos:
         return JsonResponse({"error": "No llegó ningún archivo."}, status=400)
 
     lote = _borrador(negocio, request.user, crear=True)
-    try:
-        n, omitidas = _guardar_subida(lote, f)
-    except ZipInvalido as e:
-        return JsonResponse({"error": str(e)}, status=400)
-
-    if not n:
-        return JsonResponse({"error": "El .zip no contiene imágenes en un formato admitido."},
-                            status=400)
-    # FilePond guarda este cuerpo como id del archivo; el front lee `n` de ahí
-    # para saber cuántas imágenes entraron (un zip aporta muchas de una vez).
-    return JsonResponse({"n": n, "omitidas": omitidas})
+    # Un resultado por archivo, en el mismo orden en que llegaron.
+    resultados = []
+    for f in archivos:
+        try:
+            n, omitidas = _guardar_subida(lote, f)
+        except (ImagenEnBlanco, ZipInvalido) as e:
+            resultados.append({"error": str(e)})
+            continue
+        if not n:
+            resultados.append({"error": "El .zip no contiene imágenes en un formato admitido."})
+        else:
+            resultados.append({"n": n, "omitidas": omitidas})
+    return JsonResponse({"resultados": resultados})
 
 
 @login_required
@@ -151,7 +163,7 @@ def subir(request):
                 for f in sueltos:
                     try:
                         _guardar_subida(lote, f)
-                    except ZipInvalido as e:
+                    except (ZipInvalido, ImagenEnBlanco) as e:
                         messages.warning(request, f"{f.name}: {e}")
 
             total = lote.archivos.count() if lote else 0
@@ -597,10 +609,77 @@ def eliminar(request, pk):
 
 
 @login_required
+@require_POST
+def push_suscribir(request):
+    """Guarda la suscripción push que generó el navegador de este dispositivo."""
+    import json as _json
+
+    from .models import SuscripcionPush
+
+    try:
+        datos = _json.loads(request.body.decode())
+        endpoint = datos["endpoint"]
+        claves = datos["keys"]
+        p256dh, auth = claves["p256dh"], claves["auth"]
+    except Exception:
+        return JsonResponse({"error": "Suscripción mal formada."}, status=400)
+
+    # update_or_create por endpoint: si el mismo dispositivo se re-suscribe (o
+    # cambia de usuario en el mismo navegador), se actualiza en vez de duplicar.
+    SuscripcionPush.objects.update_or_create(
+        endpoint=endpoint,
+        defaults={
+            "usuario": request.user,
+            "p256dh": p256dh,
+            "auth": auth,
+            "user_agent": request.META.get("HTTP_USER_AGENT", "")[:300],
+        },
+    )
+    return JsonResponse({"ok": True})
+
+
+@login_required
+@require_POST
+def push_desuscribir(request):
+    """Borra la suscripción de este dispositivo (el usuario apagó las notificaciones)."""
+    import json as _json
+
+    from .models import SuscripcionPush
+
+    try:
+        endpoint = _json.loads(request.body.decode())["endpoint"]
+    except Exception:
+        return JsonResponse({"error": "Falta el endpoint."}, status=400)
+
+    n, _ = SuscripcionPush.objects.filter(usuario=request.user, endpoint=endpoint).delete()
+    return JsonResponse({"ok": True, "borradas": n})
+
+
+@login_required
+@require_POST
+def push_probar(request):
+    """Manda una notificación de prueba al propio usuario."""
+    from .notifications import notificar_push
+
+    n = notificar_push(
+        request.user, "Notificaciones activadas",
+        "Así vas a recibir los avisos cuando termine un lote.",
+        url="/comprobantes/subidas/",
+    )
+    return JsonResponse({"enviadas": n})
+
+
+@login_required
 def notificaciones(request):
+    from django.conf import settings
+
     notifs = Notificacion.objects.filter(usuario=request.user)[:50]
     Notificacion.objects.filter(usuario=request.user, leida=False).update(leida=True)
-    return render(request, "comprobantes/notificaciones.html", {"notifs": notifs})
+    return render(request, "comprobantes/notificaciones.html", {
+        "notifs": notifs,
+        # Si no hay llaves VAPID, la plantilla no muestra la caja de push.
+        "vapid_public_key": getattr(settings, "VAPID_PUBLIC_KEY", ""),
+    })
 
 
 @login_required

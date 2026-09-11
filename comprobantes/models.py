@@ -204,6 +204,41 @@ class Notificacion(models.Model):
         return self.titulo
 
 
+class SuscripcionPush(models.Model):
+    """Un navegador/dispositivo suscrito a las notificaciones push del usuario.
+
+    Cada dispositivo genera su propia suscripción, así que un usuario puede
+    tener varias (celular + PC). El `endpoint` es la URL única que da el
+    navegador; es lo que identifica al dispositivo y por eso es la clave.
+    """
+
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="suscripciones_push"
+    )
+    endpoint = models.TextField(unique=True)
+    # Claves de cifrado que da el navegador; sin ellas no se puede enviar.
+    p256dh = models.CharField(max_length=200)
+    auth = models.CharField(max_length=100)
+    # Para poder mostrar "Chrome en Android" y depurar suscripciones muertas.
+    user_agent = models.CharField(max_length=300, blank=True, default="")
+    creado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-creado_en"]
+        verbose_name = "Suscripción push"
+        verbose_name_plural = "Suscripciones push"
+
+    def __str__(self):
+        return f"{self.usuario} — {self.endpoint[:40]}…"
+
+    def como_dict(self) -> dict:
+        """El formato que espera pywebpush."""
+        return {
+            "endpoint": self.endpoint,
+            "keys": {"p256dh": self.p256dh, "auth": self.auth},
+        }
+
+
 @receiver(post_delete, sender=Comprobante)
 def _borrar_imagen_comprobante(sender, instance, **kwargs):
     """Elimina el archivo de imagen del disco al borrar el comprobante."""

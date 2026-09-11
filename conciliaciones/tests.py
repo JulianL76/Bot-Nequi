@@ -173,7 +173,7 @@ class SubidaPorArchivoConciliarTest(TestCase):
                              {"imagenes": _zip({"a.jpg": _bytes_jpeg(),
                                                 "sub/b.png": _bytes_jpeg(),
                                                 "notas.txt": b"hola"})})
-        self.assertEqual(r.json(), {"n": 2, "omitidas": 1})
+        self.assertEqual(r.json()["resultados"], [{"n": 2, "omitidas": 1}])
         lote = LoteConciliacion.objects.get(estado=LoteConciliacion.BORRADOR)
         self.assertEqual(lote.items.count(), 2)
 
@@ -186,8 +186,9 @@ class SubidaPorArchivoConciliarTest(TestCase):
         self.assertEqual(lote.total, 4)
         self.assertEqual(lote.items.filter(ruta=self.ruta).count(), 4)
 
-    def test_zip_danado_responde_400(self):
+    def test_zip_danado_se_reporta_sin_crear_nada(self):
         malo = SimpleUploadedFile("roto.zip", b"no soy un zip", content_type="application/zip")
         r = self.client.post(reverse("conciliaciones:conciliar_archivo"), {"imagenes": malo})
-        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("error", r.json()["resultados"][0])
         self.assertFalse(Conciliacion.objects.exists())

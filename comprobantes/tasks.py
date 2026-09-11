@@ -19,7 +19,7 @@ from core.extraction import analizar_comprobante_sync
 from core.parsing import limpiar_monto
 
 from .models import ArchivoPendiente, Comprobante, LoteCarga
-from .notifications import notificar_inapp, notificar_telegram
+from .notifications import notificar_inapp, notificar_push, notificar_telegram
 
 logger = logging.getLogger(__name__)
 
@@ -272,6 +272,8 @@ def _notificar_fin(lote: LoteCarga):
     )
     if lote.creado_por:
         notificar_inapp(lote.creado_por, titulo, mensaje)
+        notificar_push(lote.creado_por, titulo, mensaje,
+                       url=f"/comprobantes/lote/{lote.pk}/")
         perfil = get_perfil(lote.creado_por)
         if perfil and perfil.telegram_id:
             notificar_telegram(perfil.telegram_id, f"✅ <b>{titulo}</b>\n{mensaje}")

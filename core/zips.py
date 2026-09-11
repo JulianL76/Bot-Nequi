@@ -22,6 +22,17 @@ EXTENSIONES_IMAGEN = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tif", 
 
 MAX_IMAGENES_ZIP = 900
 MAX_BYTES_IMAGEN = 25 * 1024 * 1024
+MAX_MB_ZIP = 200          # por si se usa fuera de Django (bot); settings manda
+
+
+def _tope_mb() -> int:
+    """Tope de tamaño del zip, de settings.MAX_ZIP_MB si Django está disponible."""
+    try:
+        from django.conf import settings
+
+        return int(getattr(settings, "MAX_ZIP_MB", MAX_MB_ZIP))
+    except Exception:
+        return MAX_MB_ZIP
 
 
 class ZipInvalido(Exception):
@@ -53,6 +64,15 @@ def imagenes_de_zip(archivo, resumen=None, max_imagenes=MAX_IMAGENES_ZIP):
     El recuento final queda en `resumen` (un `ResumenZip`) al agotar el generador.
     """
     resumen = resumen if resumen is not None else ResumenZip()
+
+    tope = _tope_mb()
+    tam = getattr(archivo, "size", 0) or 0
+    if tam > tope * 1024 * 1024:
+        raise ZipInvalido(
+            f"El .zip pesa {tam / 1024 / 1024:.0f} MB y el máximo son {tope} MB. "
+            f"Dividilo en partes más chicas."
+        )
+
     try:
         zf = zipfile.ZipFile(archivo)
     except (zipfile.BadZipFile, OSError) as e:

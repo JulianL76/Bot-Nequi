@@ -13,12 +13,25 @@ import logging
 import re
 import time
 
-from PIL import Image
+from PIL import Image, ImageOps
 from groq import Groq
 from google import genai as google_genai
 
+import os
+
 from . import config
 from .quota import get_preferred_ia, increment_quota
+
+# Lado mayor al que se reduce la imagen antes de mandarla a la IA.
+#
+# Medido contra la API real (gemini-2.5-flash): el prompt cuesta 261 tokens
+# tanto con 449x1024 como con 702x1600 o 3000x4000 — el tamaño NO cambia el
+# costo, Gemini escala por su cuenta. Achicar de más solo quitaba píxeles al
+# número de referencia, que es texto chico y es justo lo que se lee mal.
+#
+# Con 1600 las capturas típicas de WhatsApp (702x1600) pasan intactas, y una
+# foto cruda de cámara sigue acotada para no inflar el payload.
+IMAGEN_MAX_PX = int(os.getenv("IMAGEN_MAX_PX", "1600"))
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +84,10 @@ _PROMPT = ('JSON solo, sin texto extra:\n'
            'Dato ausente: "No encontrada".')
 
 
-def _resize_image(path: str, max_px: int = 1024) -> str:
+def _resize_image(path: str, max_px: int = None) -> str:
+    max_px = max_px or IMAGEN_MAX_PX
     with Image.open(path) as img:
+        img = ImageOps.exif_transpose(img) or img
         img = img.convert("RGB")
         w, h = img.size
         if max(w, h) > max_px:
@@ -104,9 +119,11 @@ def _aplicar_reglas(datos: dict) -> dict:
     return datos
 
 
-def _resize_image_pil(path: str, max_px: int = 1024) -> "Image.Image":
+def _resize_image_pil(path: str, max_px: int = None) -> "Image.Image":
     """Igual que _resize_image pero devuelve un PIL Image (para Gemini)."""
+    max_px = max_px or IMAGEN_MAX_PX
     with Image.open(path) as img:
+        img = ImageOps.exif_transpose(img) or img
         img = img.convert("RGB")
         w, h = img.size
         if max(w, h) > max_px:
@@ -121,7 +138,7 @@ async def _analizar_con_gemini(path: str):
         # y legibilidad del número de referencia (texto pequeño en el recibo).
         # 768px dejaba dígitos ambiguos y causaba referencias con un dígito de
         # más o de menos; 1024 da más margen sin disparar demasiado el costo.
-        pil_img = _resize_image_pil(path, max_px=1024)
+        pil_img = _resize_image_pil(path)
         response = gemini_client.models.generate_content(
             model=config.GEMINI_MODEL,
             contents=[_PROMPT, pil_img],

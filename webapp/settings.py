@@ -205,6 +205,18 @@ BATCH_SIZE = int(os.getenv('BATCH_SIZE', '30'))
 # Máximo de archivos por subida (Django corta en 100 por defecto).
 DATA_UPLOAD_MAX_NUMBER_FILES = int(os.getenv('DATA_UPLOAD_MAX_NUMBER_FILES', '900'))
 
+# Notificaciones push (Web Push / VAPID). Generar con: python manage.py gen_vapid
+# Si faltan, el push simplemente no se activa: la campanita in-app y Telegram
+# siguen funcionando igual.
+VAPID_PUBLIC_KEY = os.getenv('VAPID_PUBLIC_KEY', '')
+VAPID_PRIVATE_KEY = os.getenv('VAPID_PRIVATE_KEY', '')
+VAPID_ADMIN_EMAIL = os.getenv('VAPID_ADMIN_EMAIL', '')
+
+# Tope de tamaño de un .zip subido. El límite del navegador (maxFileSize) es
+# solo cosmético: se salta trivialmente, así que el que cuenta es este.
+# Referencia: 400 capturas de ~80 KB son ~31 MB, así que 200 va holgado.
+MAX_ZIP_MB = int(os.getenv('MAX_ZIP_MB', '200'))
+
 
 # django-unfold — branding del panel de administración.
 UNFOLD = {

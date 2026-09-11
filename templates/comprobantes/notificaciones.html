@@ -1,8 +1,257 @@
 {% extends "base.html" %}
-{% block title %}Notificaciones{% endblock %}
-{% block header %}Notificaciones{% endblock %}
+{% block title %}Notificaciones
+{% if vapid_public_key %}
+<script>
+  (function () {
+    var caja = document.getElementById('push-caja');
+    if (!caja) return;
+
+    var CLAVE = "{{ vapid_public_key }}";
+    var URLS = {
+      suscribir: "{% url 'comprobantes:push_suscribir' %}",
+      desuscribir: "{% url 'comprobantes:push_desuscribir' %}",
+      probar: "{% url 'comprobantes:push_probar' %}",
+    };
+    var CSRF = "{{ csrf_token }}";
+
+    var elEstado = document.getElementById('push-estado');
+    var btnActivar = document.getElementById('push-activar');
+    var btnDesactivar = document.getElementById('push-desactivar');
+    var btnProbar = document.getElementById('push-probar');
+
+    // La clave pública viaja en base64url; el navegador la pide como bytes.
+    function aBytes(b64) {
+      var s = (b64 + '='.repeat((4 - b64.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+      var bin = atob(s), arr = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      return arr;
+    }
+
+    function post(url, cuerpo) {
+      return fetch(url, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+        body: cuerpo ? JSON.stringify(cuerpo) : null,
+      });
+    }
+
+    function pintar(estado) {
+      caja.style.display = '';
+      var textos = {
+        no_soportado: 'Este navegador no admite notificaciones. En iPhone hay que agregar la app a la pantalla de inicio primero.',
+        bloqueado: 'Bloqueadas en la configuración del navegador. Hay que permitirlas desde el candado de la barra de direcciones.',
+        apagado: 'Recibí un aviso en este dispositivo cuando termine un lote, aunque la app esté cerrada.',
+        activo: 'Activadas en este dispositivo.',
+      };
+      elEstado.textContent = textos[estado] || '';
+      btnActivar.style.display = estado === 'apagado' ? '' : 'none';
+      btnDesactivar.style.display = estado === 'activo' ? '' : 'none';
+      btnProbar.style.display = estado === 'activo' ? '' : 'none';
+    }
+
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      return pintar('no_soportado');
+    }
+    if (Notification.permission === 'denied') return pintar('bloqueado');
+
+    navigator.serviceWorker.ready.then(function (reg) {
+      return reg.pushManager.getSubscription().then(function (sub) {
+        pintar(sub ? 'activo' : 'apagado');
+      });
+    }).catch(function () { pintar('apagado'); });
+
+    btnActivar.addEventListener('click', function () {
+      btnActivar.disabled = true;
+      Notification.requestPermission().then(function (permiso) {
+        if (permiso !== 'granted') {
+          btnActivar.disabled = false;
+          return pintar(permiso === 'denied' ? 'bloqueado' : 'apagado');
+        }
+        return navigator.serviceWorker.ready.then(function (reg) {
+          return reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: aBytes(CLAVE),
+          });
+        }).then(function (sub) {
+          return post(URLS.suscribir, sub.toJSON());
+        }).then(function (r) {
+          if (!r.ok) throw new Error('http ' + r.status);
+          pintar('activo');
+          if (window.toast) window.toast('Notificaciones activadas', 'success');
+        });
+      }).catch(function (e) {
+        btnActivar.disabled = false;
+        if (window.toast) window.toast('No se pudieron activar: ' + e.message, 'error');
+      }).then(function () { btnActivar.disabled = false; });
+    });
+
+    btnDesactivar.addEventListener('click', function () {
+      navigator.serviceWorker.ready.then(function (reg) {
+        return reg.pushManager.getSubscription();
+      }).then(function (sub) {
+        if (!sub) return pintar('apagado');
+        var endpoint = sub.endpoint;
+        return sub.unsubscribe().then(function () {
+          return post(URLS.desuscribir, { endpoint: endpoint });
+        }).then(function () {
+          pintar('apagado');
+          if (window.toast) window.toast('Notificaciones desactivadas', 'info');
+        });
+      });
+    });
+
+    btnProbar.addEventListener('click', function () {
+      post(URLS.probar).then(function (r) { return r.json(); }).then(function (d) {
+        if (window.toast) {
+          window.toast(d.enviadas ? 'Prueba enviada a ' + d.enviadas + ' dispositivo(s)'
+                                  : 'No hay dispositivos suscritos', d.enviadas ? 'success' : 'warning');
+        }
+      });
+    });
+  })();
+</script>
+{% endif %}
+{% endblock %}
+{% block header %}Notificaciones
+{% if vapid_public_key %}
+<script>
+  (function () {
+    var caja = document.getElementById('push-caja');
+    if (!caja) return;
+
+    var CLAVE = "{{ vapid_public_key }}";
+    var URLS = {
+      suscribir: "{% url 'comprobantes:push_suscribir' %}",
+      desuscribir: "{% url 'comprobantes:push_desuscribir' %}",
+      probar: "{% url 'comprobantes:push_probar' %}",
+    };
+    var CSRF = "{{ csrf_token }}";
+
+    var elEstado = document.getElementById('push-estado');
+    var btnActivar = document.getElementById('push-activar');
+    var btnDesactivar = document.getElementById('push-desactivar');
+    var btnProbar = document.getElementById('push-probar');
+
+    // La clave pública viaja en base64url; el navegador la pide como bytes.
+    function aBytes(b64) {
+      var s = (b64 + '='.repeat((4 - b64.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+      var bin = atob(s), arr = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      return arr;
+    }
+
+    function post(url, cuerpo) {
+      return fetch(url, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+        body: cuerpo ? JSON.stringify(cuerpo) : null,
+      });
+    }
+
+    function pintar(estado) {
+      caja.style.display = '';
+      var textos = {
+        no_soportado: 'Este navegador no admite notificaciones. En iPhone hay que agregar la app a la pantalla de inicio primero.',
+        bloqueado: 'Bloqueadas en la configuración del navegador. Hay que permitirlas desde el candado de la barra de direcciones.',
+        apagado: 'Recibí un aviso en este dispositivo cuando termine un lote, aunque la app esté cerrada.',
+        activo: 'Activadas en este dispositivo.',
+      };
+      elEstado.textContent = textos[estado] || '';
+      btnActivar.style.display = estado === 'apagado' ? '' : 'none';
+      btnDesactivar.style.display = estado === 'activo' ? '' : 'none';
+      btnProbar.style.display = estado === 'activo' ? '' : 'none';
+    }
+
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      return pintar('no_soportado');
+    }
+    if (Notification.permission === 'denied') return pintar('bloqueado');
+
+    navigator.serviceWorker.ready.then(function (reg) {
+      return reg.pushManager.getSubscription().then(function (sub) {
+        pintar(sub ? 'activo' : 'apagado');
+      });
+    }).catch(function () { pintar('apagado'); });
+
+    btnActivar.addEventListener('click', function () {
+      btnActivar.disabled = true;
+      Notification.requestPermission().then(function (permiso) {
+        if (permiso !== 'granted') {
+          btnActivar.disabled = false;
+          return pintar(permiso === 'denied' ? 'bloqueado' : 'apagado');
+        }
+        return navigator.serviceWorker.ready.then(function (reg) {
+          return reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: aBytes(CLAVE),
+          });
+        }).then(function (sub) {
+          return post(URLS.suscribir, sub.toJSON());
+        }).then(function (r) {
+          if (!r.ok) throw new Error('http ' + r.status);
+          pintar('activo');
+          if (window.toast) window.toast('Notificaciones activadas', 'success');
+        });
+      }).catch(function (e) {
+        btnActivar.disabled = false;
+        if (window.toast) window.toast('No se pudieron activar: ' + e.message, 'error');
+      }).then(function () { btnActivar.disabled = false; });
+    });
+
+    btnDesactivar.addEventListener('click', function () {
+      navigator.serviceWorker.ready.then(function (reg) {
+        return reg.pushManager.getSubscription();
+      }).then(function (sub) {
+        if (!sub) return pintar('apagado');
+        var endpoint = sub.endpoint;
+        return sub.unsubscribe().then(function () {
+          return post(URLS.desuscribir, { endpoint: endpoint });
+        }).then(function () {
+          pintar('apagado');
+          if (window.toast) window.toast('Notificaciones desactivadas', 'info');
+        });
+      });
+    });
+
+    btnProbar.addEventListener('click', function () {
+      post(URLS.probar).then(function (r) { return r.json(); }).then(function (d) {
+        if (window.toast) {
+          window.toast(d.enviadas ? 'Prueba enviada a ' + d.enviadas + ' dispositivo(s)'
+                                  : 'No hay dispositivos suscritos', d.enviadas ? 'success' : 'warning');
+        }
+      });
+    });
+  })();
+</script>
+{% endif %}
+{% endblock %}
 {% block content %}
 <h1 class="text-2xl font-bold mb-4">Notificaciones</h1>
+
+{% if vapid_public_key %}
+{# Activación del push. Se muestra solo si el servidor tiene llaves VAPID. #}
+<div id="push-caja" class="mb-5 rounded-xl bg-white dark:bg-slate-800 shadow p-4" style="display:none">
+  <div class="flex flex-wrap items-center gap-3">
+    <div class="flex-1 min-w-[14rem]">
+      <div class="font-semibold text-slate-800 dark:text-slate-100">Avisos en este dispositivo</div>
+      <div id="push-estado" class="text-sm text-slate-500 dark:text-slate-400">Comprobando…</div>
+    </div>
+    <button id="push-activar" type="button" style="display:none"
+            class="inline-flex items-center gap-2 bg-violet-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-violet-700 disabled:opacity-50">
+      Activar
+    </button>
+    <button id="push-desactivar" type="button" style="display:none"
+            class="text-sm text-slate-500 dark:text-slate-400 underline underline-offset-2">
+      Desactivar
+    </button>
+    <button id="push-probar" type="button" style="display:none"
+            class="text-sm text-violet-600 dark:text-violet-400 underline underline-offset-2">
+      Enviar prueba
+    </button>
+  </div>
+</div>
+{% endif %}
+
 <div class="bg-white rounded-xl shadow divide-y">
   {% for n in notifs %}
     <div class="p-4 {% if not n.leida %}bg-violet-50{% endif %}">
@@ -14,4 +263,116 @@
     <div class="p-6 text-center text-slate-400">No tienes notificaciones.</div>
   {% endfor %}
 </div>
+
+{% if vapid_public_key %}
+<script>
+  (function () {
+    var caja = document.getElementById('push-caja');
+    if (!caja) return;
+
+    var CLAVE = "{{ vapid_public_key }}";
+    var URLS = {
+      suscribir: "{% url 'comprobantes:push_suscribir' %}",
+      desuscribir: "{% url 'comprobantes:push_desuscribir' %}",
+      probar: "{% url 'comprobantes:push_probar' %}",
+    };
+    var CSRF = "{{ csrf_token }}";
+
+    var elEstado = document.getElementById('push-estado');
+    var btnActivar = document.getElementById('push-activar');
+    var btnDesactivar = document.getElementById('push-desactivar');
+    var btnProbar = document.getElementById('push-probar');
+
+    // La clave pública viaja en base64url; el navegador la pide como bytes.
+    function aBytes(b64) {
+      var s = (b64 + '='.repeat((4 - b64.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+      var bin = atob(s), arr = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      return arr;
+    }
+
+    function post(url, cuerpo) {
+      return fetch(url, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+        body: cuerpo ? JSON.stringify(cuerpo) : null,
+      });
+    }
+
+    function pintar(estado) {
+      caja.style.display = '';
+      var textos = {
+        no_soportado: 'Este navegador no admite notificaciones. En iPhone hay que agregar la app a la pantalla de inicio primero.',
+        bloqueado: 'Bloqueadas en la configuración del navegador. Hay que permitirlas desde el candado de la barra de direcciones.',
+        apagado: 'Recibí un aviso en este dispositivo cuando termine un lote, aunque la app esté cerrada.',
+        activo: 'Activadas en este dispositivo.',
+      };
+      elEstado.textContent = textos[estado] || '';
+      btnActivar.style.display = estado === 'apagado' ? '' : 'none';
+      btnDesactivar.style.display = estado === 'activo' ? '' : 'none';
+      btnProbar.style.display = estado === 'activo' ? '' : 'none';
+    }
+
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      return pintar('no_soportado');
+    }
+    if (Notification.permission === 'denied') return pintar('bloqueado');
+
+    navigator.serviceWorker.ready.then(function (reg) {
+      return reg.pushManager.getSubscription().then(function (sub) {
+        pintar(sub ? 'activo' : 'apagado');
+      });
+    }).catch(function () { pintar('apagado'); });
+
+    btnActivar.addEventListener('click', function () {
+      btnActivar.disabled = true;
+      Notification.requestPermission().then(function (permiso) {
+        if (permiso !== 'granted') {
+          btnActivar.disabled = false;
+          return pintar(permiso === 'denied' ? 'bloqueado' : 'apagado');
+        }
+        return navigator.serviceWorker.ready.then(function (reg) {
+          return reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: aBytes(CLAVE),
+          });
+        }).then(function (sub) {
+          return post(URLS.suscribir, sub.toJSON());
+        }).then(function (r) {
+          if (!r.ok) throw new Error('http ' + r.status);
+          pintar('activo');
+          if (window.toast) window.toast('Notificaciones activadas', 'success');
+        });
+      }).catch(function (e) {
+        btnActivar.disabled = false;
+        if (window.toast) window.toast('No se pudieron activar: ' + e.message, 'error');
+      }).then(function () { btnActivar.disabled = false; });
+    });
+
+    btnDesactivar.addEventListener('click', function () {
+      navigator.serviceWorker.ready.then(function (reg) {
+        return reg.pushManager.getSubscription();
+      }).then(function (sub) {
+        if (!sub) return pintar('apagado');
+        var endpoint = sub.endpoint;
+        return sub.unsubscribe().then(function () {
+          return post(URLS.desuscribir, { endpoint: endpoint });
+        }).then(function () {
+          pintar('apagado');
+          if (window.toast) window.toast('Notificaciones desactivadas', 'info');
+        });
+      });
+    });
+
+    btnProbar.addEventListener('click', function () {
+      post(URLS.probar).then(function (r) { return r.json(); }).then(function (d) {
+        if (window.toast) {
+          window.toast(d.enviadas ? 'Prueba enviada a ' + d.enviadas + ' dispositivo(s)'
+                                  : 'No hay dispositivos suscritos', d.enviadas ? 'success' : 'warning');
+        }
+      });
+    });
+  })();
+</script>
+{% endif %}
 {% endblock %}

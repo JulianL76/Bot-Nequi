@@ -37,8 +37,6 @@ congela el navegador.
 </style>
 <script src="{% static 'vendor/filepond/filepond-plugin-file-validate-type.min.js' %}"></script>
 <script src="{% static 'vendor/filepond/filepond-plugin-file-validate-size.min.js' %}"></script>
-<script src="{% static 'vendor/filepond/filepond-plugin-image-resize.min.js' %}"></script>
-<script src="{% static 'vendor/filepond/filepond-plugin-image-transform.min.js' %}"></script>
 <script src="{% static 'vendor/filepond/filepond.min.js' %}"></script>
 
 <script>
@@ -63,6 +61,11 @@ congela el navegador.
       if (uad && typeof uad.mobile === 'boolean') return uad.mobile;
       return /Android|iPhone|iPad|iPod|IEMobile|Opera Mini|Mobile/i.test(navigator.userAgent || '');
     }
+
+    // Cuántos archivos van juntos en cada petición, y cuánto se espera para
+    // llenar una tanda antes de mandarla igual.
+    var TANDA = 8;
+    var ESPERA_TANDA = 60;   // ms
 
     window.initPondSubida = function (cfg) {
       var input = document.querySelector('.filepond-input');
@@ -132,9 +135,7 @@ congela el navegador.
         mostrarInputNativo();   // FilePond ya va a absorberlo y darle su propio estilo
         FilePond.registerPlugin(
           FilePondPluginFileValidateType,
-          FilePondPluginFileValidateSize,
-          FilePondPluginImageResize,
-          FilePondPluginImageTransform
+          FilePondPluginFileValidateSize
         );
 
         // Se cuentan dos cosas distintas: los ARCHIVOS que el usuario eligió
@@ -148,6 +149,95 @@ congela el navegador.
         var progreso = {};                    // id de archivo en curso -> 0..1
         var reintentos = {};                  // id de archivo -> reintentos automáticos
         var avisoError = false;
+
+        // --- Envío por tandas -------------------------------------------
+        // FilePond sube UN archivo por petición. Con 400 capturas de ~80 KB el
+        // costo no es el peso sino la cantidad de viajes de red (medido: el
+        // servidor tarda 8 ms por imagen, la latencia móvil ~200 ms). Estas
+        // funciones juntan los archivos que FilePond va entregando y los mandan
+        // de a TANDA en una sola petición, sin tocar su máquina de estados:
+        // cada archivo sigue recibiendo su propio load()/error(), así que el
+        // reintento y el progreso por archivo siguen funcionando igual.
+        var cola = [];
+        var tempo = null;
+
+        function encolar(item) {
+          cola.push(item);
+          if (cola.length >= TANDA) despachar();
+          else if (!tempo) tempo = setTimeout(despachar, ESPERA_TANDA);
+        }
+
+        function despachar() {
+          clearTimeout(tempo);
+          tempo = null;
+          if (!cola.length) return;
+          enviarTanda(cola.splice(0, TANDA));
+          // Si quedaron más, se manda otra tanda en el siguiente tick.
+          if (cola.length) tempo = setTimeout(despachar, 0);
+        }
+
+        function enviarTanda(tanda) {
+          var fd = new FormData();
+          tanda.forEach(function (it) { fd.append('imagenes', it.file, it.file.name); });
+
+          var xhr = new XMLHttpRequest();
+          xhr.open('POST', cfg.urlArchivo, true);
+          xhr.withCredentials = true;
+          xhr.setRequestHeader('X-CSRFToken', cfg.csrf);
+
+          function vivos() { return tanda.filter(function (it) { return !it.cancelado; }); }
+
+          xhr.upload.onprogress = function (e) {
+            if (!e.lengthComputable) return;
+            // La petición es una sola: todos los archivos de la tanda avanzan igual.
+            vivos().forEach(function (it) { it.progress(true, e.loaded, e.total); });
+          };
+
+          xhr.onload = function () {
+            var res = null;
+            try { res = JSON.parse(xhr.responseText); } catch (e) {}
+            if (xhr.status < 200 || xhr.status >= 300 || !res || !res.resultados) {
+              var msg = (res && res.error) || ('El servidor respondió ' + xhr.status);
+              vivos().forEach(function (it) { it.error(msg); });
+              return;
+            }
+            tanda.forEach(function (it, i) {
+              if (it.cancelado) return;
+              var r = res.resultados[i];
+              if (!r) return it.error('El servidor no devolvió resultado para este archivo.');
+              if (r.error) return it.error(r.error);
+              it.load(JSON.stringify(r));   // queda como serverId; datosDe() lo lee
+            });
+          };
+
+          xhr.onerror = function () {
+            vivos().forEach(function (it) { it.error('Se cortó la conexión.'); });
+          };
+          xhr.ontimeout = xhr.onerror;
+
+          xhr.__tanda = tanda;   // lo usa abort() para saber si ya nadie espera
+          tanda.forEach(function (it) { it.xhr = xhr; });
+          xhr.send(fd);
+        }
+
+        // La firma que espera FilePond para un `server.process` propio.
+        function enviarPorTandas(campo, file, meta, load, error, progress, abort) {
+          var item = { file: file, load: load, error: error, progress: progress,
+                       cancelado: false, xhr: null };
+          encolar(item);
+          return {
+            abort: function () {
+              item.cancelado = true;
+              // La petición lleva varios archivos: solo se corta si TODOS los
+              // de esa tanda fueron cancelados.
+              var x = item.xhr;
+              if (x && x.__tanda && x.__tanda.every(function (o) { return o.cancelado; })) {
+                try { x.abort(); } catch (e) {}
+              }
+              abort();
+            },
+          };
+        }
 
         function datosDe(serverId) {
           // El endpoint responde {"n": imágenes, "omitidas": n}; FilePond lo
@@ -182,29 +272,14 @@ congela el navegador.
           credits: false,
           itemInsertInterval: 0,        // insertar sin animación (mejor con muchos archivos)
           instantUpload: true,          // sube en cuanto se selecciona
-          // Solo 2 en paralelo: en el celular esto limita cuántas imágenes se
-          // decodifican a la vez, que es justo lo que reventaba la memoria.
-          maxParallelUploads: 2,
-          // Compresión en el cliente: 3 MB -> ~80 KB antes de enviar.
-          allowImageResize: true,
-          imageResizeTargetWidth: 1024,
-          imageResizeTargetHeight: 1024,
-          imageResizeMode: 'contain',
-          imageResizeUpscale: false,
-          allowImageTransform: true,
-          imageTransformOutputMimeType: 'image/jpeg',
-          imageTransformOutputQuality: 82,
+          // Alto a propósito: FilePond llama a process() una vez por archivo,
+          // y `enviarPorTandas` los junta. Necesita que le entregue suficientes
+          // a la vez para poder agrupar (TANDA * 3 peticiones en vuelo).
+          maxParallelUploads: TANDA * 3,
           server: {
             url: '',
-            process: {
-              url: cfg.urlArchivo,
-              method: 'POST',
-              withCredentials: true,
-              headers: { 'X-CSRFToken': cfg.csrf },
-              onerror: function (res) {
-                try { return JSON.parse(res).error; } catch (e) { return null; }
-              },
-            },
+            // process propio para agrupar en tandas (ver enviarPorTandas).
+            process: enviarPorTandas,
             // Solo se usa `process`: el resto de endpoints de FilePond no aplican.
             revert: null, load: null, fetch: null, restore: null, patch: null,
           },
