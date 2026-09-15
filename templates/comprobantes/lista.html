@@ -266,6 +266,9 @@
     <span class="text-sm font-medium"><span id="sel-count2">0</span> seleccionado(s)</span>
     <div class="flex flex-wrap gap-2 ml-auto">
       <button name="accion" value="confirmar" class="btn btn-sm btn-success"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Confirmar</button>
+      <button name="accion" value="desconfirmar" class="btn btn-sm btn-warning"
+              onclick="return confirm('¿Quitar la confirmación de los seleccionados? Se borra el registro de quién, cuándo y por qué vía se confirmaron.')"
+              title="Volver a sin confirmar"><svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg> Desconfirmar</button>
       <select name="ruta" class="select select-bordered select-sm">
         <option value="">Ruta…</option>
         {% for r in rutas %}<option value="{{ r.id }}">Ruta {{ r.numero }}</option>{% endfor %}

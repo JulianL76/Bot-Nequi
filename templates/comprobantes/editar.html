@@ -2,32 +2,140 @@
 {% block title %}Editar comprobante{% endblock %}
 {% block header %}Editar{% endblock %}
 {% block content %}
-<h1 class="text-2xl font-bold mb-4">Editar comprobante #{{ comp.pk }}</h1>
-<div class="bg-white p-6 rounded-xl shadow max-w-3xl grid md:grid-cols-2 gap-6">
-  <div>
-    {% if comp.imagen %}<img src="{{ comp.imagen.url }}" class="rounded-lg border max-h-96">{% else %}<p class="text-slate-400">Sin imagen</p>{% endif %}
+<div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+  <h1 class="text-2xl font-bold">Editar comprobante #{{ comp.pk }}</h1>
+  <a href="{% url 'comprobantes:lista' %}" class="text-sm text-violet-600 hover:underline">← Volver al listado</a>
+</div>
+
+<div class="grid lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-6 max-w-5xl">
+
+  <!-- Columna izquierda: imagen + información de solo lectura -->
+  <div class="space-y-4 min-w-0">
+    <div class="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700/50">
+      {% if comp.imagen %}
+        <a href="{{ comp.imagen.url }}" target="_blank" rel="noopener" title="Abrir imagen completa">
+          <img src="{{ comp.imagen.url }}" alt="Comprobante #{{ comp.pk }}" class="rounded-lg border border-slate-200 dark:border-slate-700 max-h-[28rem] mx-auto">
+        </a>
+      {% else %}
+        <p class="text-slate-400 text-center py-10">Sin imagen</p>
+      {% endif %}
+    </div>
+
+    <div class="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700/50">
+      <h2 class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">Información</h2>
+      <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+        <dt class="text-slate-500">Origen</dt>
+        <dd>{{ comp.get_origen_display }}</dd>
+
+        <dt class="text-slate-500">Subida</dt>
+        <dd>{% if comp.lote %}<a href="{% url 'comprobantes:lote_detalle' comp.lote_id %}" class="text-violet-600 hover:underline">Lote #{{ comp.lote_id }}</a>{% else %}—{% endif %}</dd>
+
+        <dt class="text-slate-500">Creado por</dt>
+        <dd>{% if comp.creado_por %}{{ comp.creado_por.get_full_name|default:comp.creado_por.username }}{% else %}—{% endif %}</dd>
+
+        <dt class="text-slate-500">Creado el</dt>
+        <dd>{{ comp.creado_en|date:"d/m/Y H:i" }}</dd>
+
+        {% if comp.fuente_ia %}
+        <dt class="text-slate-500">Leído con</dt>
+        <dd>{{ comp.fuente_ia }}</dd>
+        {% endif %}
+
+        {% if comp.valor_raw and comp.valor_raw != comp.valor|stringformat:"s" %}
+        <dt class="text-slate-500">Valor leído</dt>
+        <dd class="font-mono break-all">{{ comp.valor_raw }}</dd>
+        {% endif %}
+
+        <dt class="text-slate-500">Duplicado</dt>
+        <dd>
+          {% if comp.es_duplicado %}
+            <span class="text-rose-600 font-medium">Sí</span>{% if comp.duplicado_de %} · de <a href="{% url 'comprobantes:editar' comp.duplicado_de_id %}" class="text-violet-600 hover:underline">#{{ comp.duplicado_de_id }}</a>{% endif %}
+          {% else %}No{% endif %}
+        </dd>
+      </dl>
+    </div>
   </div>
-  <form method="post" class="space-y-3">{% csrf_token %}
-    <div><label class="block text-sm">Remitente</label><input name="de" value="{{ comp.de }}" class="w-full p-2 border rounded"></div>
-    <div><label class="block text-sm">Valor</label><input name="valor" value="{{ comp.valor }}" class="w-full p-2 border rounded"></div>
-    <div><label class="block text-sm">Referencia</label><input name="ref" value="{{ comp.ref }}" class="w-full p-2 border rounded"></div>
-    <div><label class="block text-sm">Fecha</label><input name="fecha" value="{{ comp.fecha }}" class="w-full p-2 border rounded"></div>
-    <div><label class="block text-sm">Hora</label><input name="hora" value="{{ comp.hora }}" class="w-full p-2 border rounded"></div>
-    {% if comp.estado == 'confirmado' %}
-      <div class="text-sm p-3 rounded bg-emerald-50 text-emerald-800 space-y-0.5">
-        <div class="font-semibold">Confirmado</div>
-        <div>Vía: {{ comp.get_confirmado_via_display|default:"Sin registro (confirmado antes del historial)" }}</div>
-        {% if comp.confirmado_en %}<div>Fecha: {{ comp.confirmado_en|date:"d/m/Y H:i" }}</div>{% endif %}
-        {% if comp.confirmado_por %}<div>Por: {{ comp.confirmado_por.get_full_name|default:comp.confirmado_por.username }}</div>{% endif %}
-        {% with co=comp.confirmado_conciliacion %}{% if co %}<div><a href="{% url 'conciliaciones:lote_detalle' co.lote_id %}#conc-item-{{ co.id }}" class="text-violet-600 hover:underline">Conciliación #{{ co.lote_id }}{% if co.lote.ruta %} · Ruta {{ co.lote.ruta.numero }}{% endif %} (ítem #{{ co.id }})</a></div>{% endif %}{% endwith %}
+
+  <!-- Columna derecha: formulario -->
+  <form method="post" id="form-editar" class="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700/50 space-y-5 min-w-0"
+        data-estaba-confirmado="{% if comp.estado == 'confirmado' %}1{% endif %}">
+    {% csrf_token %}
+
+    <fieldset class="space-y-3">
+      <legend class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Datos del comprobante</legend>
+      <div>
+        <label for="f-de" class="block text-sm mb-1">Remitente</label>
+        <input id="f-de" name="de" value="{{ comp.de }}" class="w-full p-2 border rounded bg-transparent dark:border-slate-600">
       </div>
-    {% else %}
-      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="confirmar" value="1" class="w-4 h-4"> Marcar como confirmado</label>
-    {% endif %}
-    <div class="flex gap-2 pt-2">
-      <button class="bg-violet-600 text-white px-5 py-2 rounded hover:bg-violet-700">Guardar</button>
-      <a href="{% url 'comprobantes:lista' %}" class="px-5 py-2 rounded bg-slate-200">Cancelar</a>
+      <div class="grid sm:grid-cols-2 gap-3">
+        <div>
+          <label for="f-valor" class="block text-sm mb-1">Valor</label>
+          <input id="f-valor" name="valor" value="{{ comp.valor }}" inputmode="decimal" class="w-full p-2 border rounded bg-transparent dark:border-slate-600">
+        </div>
+        <div>
+          <label for="f-ref" class="block text-sm mb-1">Referencia</label>
+          <input id="f-ref" name="ref" value="{{ comp.ref }}" class="w-full p-2 border rounded bg-transparent dark:border-slate-600 font-mono">
+        </div>
+        <div>
+          <label for="f-fecha" class="block text-sm mb-1">Fecha</label>
+          <input id="f-fecha" name="fecha" value="{{ comp.fecha }}" class="w-full p-2 border rounded bg-transparent dark:border-slate-600">
+        </div>
+        <div>
+          <label for="f-hora" class="block text-sm mb-1">Hora</label>
+          <input id="f-hora" name="hora" value="{{ comp.hora }}" class="w-full p-2 border rounded bg-transparent dark:border-slate-600">
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset class="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-700/50">
+      <legend class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Ruta y estado</legend>
+      <div>
+        <label for="f-ruta" class="block text-sm mb-1">Ruta</label>
+        <select id="f-ruta" name="ruta" class="select select-bordered w-full">
+          <option value="">Sin ruta</option>
+          {% for r in rutas %}
+            <option value="{{ r.id }}" {% if r.id == comp.ruta_id %}selected{% endif %}>Ruta {{ r.numero }}{% if not r.activa %} (inactiva){% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <label class="flex items-center justify-between gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer">
+        <span>
+          <span class="block text-sm font-medium">Confirmado</span>
+          <span class="block text-xs text-slate-500">Revisado y validado por una persona.</span>
+        </span>
+        <input type="checkbox" name="confirmado" value="1" class="toggle toggle-success" {% if comp.estado == 'confirmado' %}checked{% endif %}>
+      </label>
+
+      {% if comp.estado == 'confirmado' %}
+        <div class="text-sm p-3 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 space-y-0.5">
+          <div class="font-semibold">Registro de confirmación</div>
+          <div>Vía: {{ comp.get_confirmado_via_display|default:"Sin registro (confirmado antes del historial)" }}</div>
+          {% if comp.confirmado_en %}<div>Fecha: {{ comp.confirmado_en|date:"d/m/Y H:i" }}</div>{% endif %}
+          {% if comp.confirmado_por %}<div>Por: {{ comp.confirmado_por.get_full_name|default:comp.confirmado_por.username }}</div>{% endif %}
+          {% with co=comp.confirmado_conciliacion %}{% if co %}<div><a href="{% url 'conciliaciones:lote_detalle' co.lote_id %}#conc-item-{{ co.id }}" class="text-violet-600 hover:underline">Conciliación #{{ co.lote_id }}{% if co.lote.ruta %} · Ruta {{ co.lote.ruta.numero }}{% endif %} (ítem #{{ co.id }})</a></div>{% endif %}{% endwith %}
+        </div>
+      {% endif %}
+    </fieldset>
+
+    <div class="flex flex-wrap gap-2 pt-2">
+      <button class="btn btn-primary">Guardar</button>
+      <a href="{% url 'comprobantes:lista' %}" class="btn btn-ghost">Cancelar</a>
     </div>
   </form>
 </div>
+
+<script>
+(function () {
+  // Quitar la confirmación borra su registro (vía, fecha, usuario): pedir confirmación.
+  var form = document.getElementById('form-editar');
+  if (!form || !form.dataset.estabaConfirmado) return;
+  form.addEventListener('submit', function (e) {
+    if (!form.elements.confirmado.checked &&
+        !confirm('¿Quitar la confirmación? Se borra el registro de quién, cuándo y por qué vía se confirmó.')) {
+      e.preventDefault();
+    }
+  });
+})();
+</script>
 {% endblock %}

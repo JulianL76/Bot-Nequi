@@ -553,7 +553,7 @@ def importar_excel(request):
 
 @login_required
 def acciones_lote(request):
-    """Aplica una acción (confirmar/asignar ruta/eliminar/exportar) a los seleccionados."""
+    """Aplica una acción (confirmar/desconfirmar/asignar ruta/eliminar/exportar) a los seleccionados."""
     negocio = get_negocio(request.user)
     if request.method != "POST":
         return redirect("comprobantes:lista")
@@ -567,14 +567,36 @@ def acciones_lote(request):
     accion = request.POST.get("accion")
 
     if accion == "confirmar":
-        # Solo los que aún no lo están, para no pisar la trazabilidad existente.
+        # Si hay una ruta elegida en la barra, se asigna a todos los seleccionados
+        # (igual que "Asignar") antes de confirmar. Sin ruta, solo confirma.
         from django.utils import timezone
+        ruta_id = request.POST.get("ruta")
+        ruta = Ruta.objects.filter(negocio=negocio, pk=ruta_id).first() if ruta_id else None
+        if ruta_id and not ruta:
+            messages.error(request, "Elige una ruta válida.")
+            return redirect("comprobantes:lista")
+        if ruta:
+            qs.update(ruta=ruta)
+        # Solo los que aún no lo están, para no pisar la trazabilidad existente.
         n = qs.filter(estado=Comprobante.SIN_CONFIRMAR).update(
             estado=Comprobante.CONFIRMADO, confirmado_via=Comprobante.VIA_LISTA,
             confirmado_en=timezone.now(), confirmado_por=request.user,
             confirmado_conciliacion=None,
         )
-        messages.success(request, f"{n} comprobante(s) confirmado(s).")
+        if ruta:
+            messages.success(request, f"{n} comprobante(s) confirmado(s) y ruta {ruta.numero} asignada.")
+        else:
+            messages.success(request, f"{n} comprobante(s) confirmado(s).")
+
+    elif accion == "desconfirmar":
+        # Mismo efecto que Comprobante.quitar_confirmacion(), en bloque. No toca la
+        # ruta ni los datos: solo vuelve a "sin confirmar" y limpia la trazabilidad.
+        confirmados = qs.filter(estado=Comprobante.CONFIRMADO)
+        n = confirmados.update(
+            estado=Comprobante.SIN_CONFIRMAR, confirmado_via="",
+            confirmado_en=None, confirmado_por=None, confirmado_conciliacion=None,
+        )
+        messages.success(request, f"{n} comprobante(s) marcado(s) como sin confirmar.")
 
     elif accion == "asignar_ruta":
         ruta = Ruta.objects.filter(negocio=negocio, pk=request.POST.get("ruta")).first()
@@ -603,9 +625,17 @@ def acciones_lote(request):
 def editar(request, pk):
     negocio = get_negocio(request.user)
     comp = get_object_or_404(
-        Comprobante.objects.select_related("confirmado_por", "confirmado_conciliacion__lote__ruta"),
+        Comprobante.objects.select_related(
+            "ruta", "lote", "creado_por", "duplicado_de",
+            "confirmado_por", "confirmado_conciliacion__lote__ruta",
+        ),
         pk=pk, negocio=negocio,
     )
+    # Rutas activas + la actual aunque esté desactivada, para no perderla al guardar.
+    rutas = Ruta.objects.filter(negocio=negocio).filter(
+        Q(activa=True) | Q(pk=comp.ruta_id)
+    ).order_by("numero")
+
     if request.method == "POST":
         from core.parsing import limpiar_monto
 
@@ -616,13 +646,29 @@ def editar(request, pk):
         comp.ref = request.POST.get("ref", comp.ref)
         comp.fecha = request.POST.get("fecha", comp.fecha)
         comp.hora = request.POST.get("hora", comp.hora)
-        # Editar NO confirma: solo si el usuario marca la casilla explícitamente.
-        if comp.estado != Comprobante.CONFIRMADO and request.POST.get("confirmar"):
+
+        ruta_id = request.POST.get("ruta", "")
+        if ruta_id:
+            ruta = rutas.filter(pk=ruta_id).first()
+            if not ruta:
+                messages.error(request, "Elige una ruta válida.")
+                return render(request, "comprobantes/editar.html", {"comp": comp, "rutas": rutas})
+            comp.ruta = ruta
+        else:
+            comp.ruta = None
+
+        # El estado solo cambia si el usuario lo mueve: confirmar registra la
+        # trazabilidad de edición; desconfirmar la limpia. Si no cambia, se conserva.
+        quiere_confirmado = request.POST.get("confirmado") == "1"
+        if quiere_confirmado and comp.estado != Comprobante.CONFIRMADO:
             comp.marcar_confirmado(Comprobante.VIA_EDICION, request.user)
+        elif not quiere_confirmado and comp.estado == Comprobante.CONFIRMADO:
+            comp.quitar_confirmacion()
+
         comp.save()
         messages.success(request, "Comprobante actualizado.")
         return redirect("comprobantes:lista")
-    return render(request, "comprobantes/editar.html", {"comp": comp})
+    return render(request, "comprobantes/editar.html", {"comp": comp, "rutas": rutas})
 
 
 @login_required
