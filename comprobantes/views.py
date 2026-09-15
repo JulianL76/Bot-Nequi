@@ -39,11 +39,20 @@ def _excel_comprobantes(qs, filename="comprobantes.xlsx"):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Comprobantes"
-    ws.append(["Remitente", "Valor", "Referencia", "Fecha", "Hora", "Ruta", "Estado"])
+    # Las columnas de trazabilidad van al final: importar_excel solo lee las 7 primeras.
+    ws.append(["Remitente", "Valor", "Referencia", "Fecha", "Hora", "Ruta", "Estado",
+               "Confirmado vía", "Confirmado en", "Confirmado por", "Conciliación"])
+    from django.utils import timezone
+    qs = qs.select_related("ruta", "confirmado_por", "confirmado_conciliacion")
     for c in qs:
+        conf_en = timezone.localtime(c.confirmado_en).strftime("%d/%m/%Y %H:%M") if c.confirmado_en else ""
+        co = c.confirmado_conciliacion
         ws.append([
             c.de, float(c.valor), c.ref, c.fecha, c.hora,
             c.ruta.numero if c.ruta else "", c.get_estado_display(),
+            c.get_confirmado_via_display(), conf_en,
+            c.confirmado_por.username if c.confirmado_por else "",
+            f"#{co.lote_id} (ítem {co.pk})" if co else "",
         ])
     response = HttpResponse(
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -356,7 +365,9 @@ def lista(request):
 
     # Anotar nº de duplicados SOLO en la página (no en el qs del agregado, para
     # no alterar la suma con el GROUP BY).
-    pagina_qs = qs.select_related("ruta").annotate(n_dups=Count("duplicados"))
+    pagina_qs = qs.select_related(
+        "ruta", "confirmado_por", "confirmado_conciliacion__lote__ruta"
+    ).annotate(n_dups=Count("duplicados"))
 
     # Ordenamiento por columna (?sort=campo o -campo). Tiene prioridad sobre lo demás.
     sort = request.GET.get("sort", "").strip()
@@ -388,7 +399,13 @@ def lista(request):
                .select_related("lote", "lote__ruta").order_by("creado_en")):
         mapa_conc.setdefault(co.comprobante_id, co)
     for c in page.object_list:
-        c.conciliacion = mapa_conc.get(c.pk)
+        # Solo si la confirmación vino de una conciliación (no una manual posterior).
+        if c.confirmado_conciliacion:
+            c.conciliacion = c.confirmado_conciliacion
+        elif not c.confirmado_via:
+            c.conciliacion = mapa_conc.get(c.pk)
+        else:
+            c.conciliacion = None
 
     rutas = Ruta.objects.filter(negocio=negocio, activa=True) if negocio else Ruta.objects.none()
     return render(request, "comprobantes/lista.html",
@@ -510,15 +527,17 @@ def importar_excel(request):
 
             confirmado = str(estado).strip().lower().startswith("conf") if estado else False
 
-            Comprobante.objects.create(
+            nuevo = Comprobante(
                 negocio=negocio, creado_por=request.user,
                 de=de, valor=monto or 0, valor_raw=valor_raw,
                 fecha=str(fecha).strip() if fecha is not None else "",
                 hora=str(hora).strip() if hora is not None else "",
                 ref=ref, ruta=ruta,
                 origen=Comprobante.ORIGEN_WEB,
-                estado=Comprobante.CONFIRMADO if confirmado else Comprobante.SIN_CONFIRMAR,
             )
+            if confirmado:
+                nuevo.marcar_confirmado(Comprobante.VIA_IMPORTACION, request.user)
+            nuevo.save()
             creados += 1
 
         wb.close()
@@ -548,7 +567,13 @@ def acciones_lote(request):
     accion = request.POST.get("accion")
 
     if accion == "confirmar":
-        n = qs.update(estado=Comprobante.CONFIRMADO)
+        # Solo los que aún no lo están, para no pisar la trazabilidad existente.
+        from django.utils import timezone
+        n = qs.filter(estado=Comprobante.SIN_CONFIRMAR).update(
+            estado=Comprobante.CONFIRMADO, confirmado_via=Comprobante.VIA_LISTA,
+            confirmado_en=timezone.now(), confirmado_por=request.user,
+            confirmado_conciliacion=None,
+        )
         messages.success(request, f"{n} comprobante(s) confirmado(s).")
 
     elif accion == "asignar_ruta":
@@ -577,7 +602,10 @@ def acciones_lote(request):
 @login_required
 def editar(request, pk):
     negocio = get_negocio(request.user)
-    comp = get_object_or_404(Comprobante, pk=pk, negocio=negocio)
+    comp = get_object_or_404(
+        Comprobante.objects.select_related("confirmado_por", "confirmado_conciliacion__lote__ruta"),
+        pk=pk, negocio=negocio,
+    )
     if request.method == "POST":
         from core.parsing import limpiar_monto
 
@@ -588,7 +616,9 @@ def editar(request, pk):
         comp.ref = request.POST.get("ref", comp.ref)
         comp.fecha = request.POST.get("fecha", comp.fecha)
         comp.hora = request.POST.get("hora", comp.hora)
-        comp.estado = Comprobante.CONFIRMADO
+        # Editar NO confirma: solo si el usuario marca la casilla explícitamente.
+        if comp.estado != Comprobante.CONFIRMADO and request.POST.get("confirmar"):
+            comp.marcar_confirmado(Comprobante.VIA_EDICION, request.user)
         comp.save()
         messages.success(request, "Comprobante actualizado.")
         return redirect("comprobantes:lista")

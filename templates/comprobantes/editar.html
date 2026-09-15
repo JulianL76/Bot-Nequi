@@ -13,6 +13,17 @@
     <div><label class="block text-sm">Referencia</label><input name="ref" value="{{ comp.ref }}" class="w-full p-2 border rounded"></div>
     <div><label class="block text-sm">Fecha</label><input name="fecha" value="{{ comp.fecha }}" class="w-full p-2 border rounded"></div>
     <div><label class="block text-sm">Hora</label><input name="hora" value="{{ comp.hora }}" class="w-full p-2 border rounded"></div>
+    {% if comp.estado == 'confirmado' %}
+      <div class="text-sm p-3 rounded bg-emerald-50 text-emerald-800 space-y-0.5">
+        <div class="font-semibold">Confirmado</div>
+        <div>Vía: {{ comp.get_confirmado_via_display|default:"Sin registro (confirmado antes del historial)" }}</div>
+        {% if comp.confirmado_en %}<div>Fecha: {{ comp.confirmado_en|date:"d/m/Y H:i" }}</div>{% endif %}
+        {% if comp.confirmado_por %}<div>Por: {{ comp.confirmado_por.get_full_name|default:comp.confirmado_por.username }}</div>{% endif %}
+        {% with co=comp.confirmado_conciliacion %}{% if co %}<div><a href="{% url 'conciliaciones:lote_detalle' co.lote_id %}#conc-item-{{ co.id }}" class="text-violet-600 hover:underline">Conciliación #{{ co.lote_id }}{% if co.lote.ruta %} · Ruta {{ co.lote.ruta.numero }}{% endif %} (ítem #{{ co.id }})</a></div>{% endif %}{% endwith %}
+      </div>
+    {% else %}
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="confirmar" value="1" class="w-4 h-4"> Marcar como confirmado</label>
+    {% endif %}
     <div class="flex gap-2 pt-2">
       <button class="bg-violet-600 text-white px-5 py-2 rounded hover:bg-violet-700">Guardar</button>
       <a href="{% url 'comprobantes:lista' %}" class="px-5 py-2 rounded bg-slate-200">Cancelar</a>

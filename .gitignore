@@ -6,6 +6,7 @@ quota_tracker.json
 debug_log.json
 listas_nequi.json
 logs_comprobantes/
+logs/
 temp_*.jpg
 *.xlsx
 preferred_ia.json

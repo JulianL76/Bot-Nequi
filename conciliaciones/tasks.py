@@ -204,11 +204,13 @@ def validar_y_emparejar(item: Conciliacion, lote: LoteConciliacion) -> str:
 
     # 5. OK: confirmar el comprobante y asignarle la ruta del lote.
     item.comprobante = comp
-    comp.estado = Comprobante.CONFIRMADO
-    comp.ruta = lote.ruta
-    comp.save()
     item.resultado = Conciliacion.OK
     item.save()
+    # Reprocesar un ítem que ya confirmó este comprobante no debe cambiar la fecha.
+    if not (comp.estado == Comprobante.CONFIRMADO and comp.confirmado_conciliacion_id == item.pk):
+        comp.marcar_confirmado(Comprobante.VIA_CONCILIACION, lote.creado_por, item)
+    comp.ruta = lote.ruta
+    comp.save()
     return "ok"
 
 

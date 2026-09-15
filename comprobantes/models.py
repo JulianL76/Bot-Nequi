@@ -154,6 +154,33 @@ class Comprobante(models.Model):
     # de revisión humana); se marca "confirmado" cuando un usuario lo valida.
     estado = models.CharField(max_length=20, choices=ESTADOS, default=SIN_CONFIRMAR)
 
+    # Trazabilidad de la confirmación: por qué vía, cuándo, quién y (si aplica)
+    # con qué ítem de conciliación se confirmó. Ver marcar_confirmado().
+    VIA_CONCILIACION = "conciliacion"
+    VIA_CONC_PENDIENTE = "conc_pendiente"
+    VIA_CONC_AGREGAR = "conc_agregar"
+    VIA_LISTA = "lista"
+    VIA_EDICION = "edicion"
+    VIA_IMPORTACION = "importacion"
+    VIAS_CONFIRMACION = [
+        (VIA_CONCILIACION, "Conciliación automática"),
+        (VIA_CONC_PENDIENTE, "Conciliación (pendiente confirmado a mano)"),
+        (VIA_CONC_AGREGAR, "Conciliación (añadido y confirmado a mano)"),
+        (VIA_LISTA, "Manual desde el listado"),
+        (VIA_EDICION, "Manual al editar"),
+        (VIA_IMPORTACION, "Importación de Excel"),
+    ]
+    confirmado_via = models.CharField(max_length=20, choices=VIAS_CONFIRMACION, blank=True, default="")
+    confirmado_en = models.DateTimeField(null=True, blank=True)
+    confirmado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="comprobantes_confirmados",
+    )
+    confirmado_conciliacion = models.ForeignKey(
+        "conciliaciones.Conciliacion", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+",
+    )
+
     creado_en = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -179,6 +206,27 @@ class Comprobante(models.Model):
         if t:
             self.hora = t.strftime("%H:%M")
         super().save(*args, **kwargs)
+
+    CAMPOS_CONFIRMACION = ["estado", "confirmado_via", "confirmado_en",
+                           "confirmado_por", "confirmado_conciliacion"]
+
+    def marcar_confirmado(self, via, usuario=None, conciliacion=None):
+        """Marca como confirmado registrando la trazabilidad (no guarda)."""
+        from django.utils import timezone
+
+        self.estado = self.CONFIRMADO
+        self.confirmado_via = via
+        self.confirmado_en = timezone.now()
+        self.confirmado_por = usuario
+        self.confirmado_conciliacion = conciliacion
+
+    def quitar_confirmacion(self):
+        """Vuelve a "sin confirmar" y limpia la trazabilidad (no guarda)."""
+        self.estado = self.SIN_CONFIRMAR
+        self.confirmado_via = ""
+        self.confirmado_en = None
+        self.confirmado_por = None
+        self.confirmado_conciliacion = None
 
     def __str__(self):
         return f"{self.de} — {self.valor} ({self.ref})"

@@ -470,9 +470,9 @@ def _eliminar_lote_conciliacion(lote):
             comp.delete()
             n_borrados += 1
         else:
-            comp.estado = Comprobante.SIN_CONFIRMAR
+            comp.quitar_confirmacion()
             comp.ruta = None
-            comp.save(update_fields=["estado", "ruta"])
+            comp.save(update_fields=[*Comprobante.CAMPOS_CONFIRMACION, "ruta"])
             n_revertidos += 1
     lote.delete()  # cascada de Conciliacion + sus imágenes (señal post_delete)
     return n_revertidos, n_borrados
@@ -590,9 +590,10 @@ def agregar_confirmar(request, pk):
         de=item.de or "No encontrada", valor=item.valor or 0, valor_raw=item.valor_raw,
         fecha=item.fecha, hora=item.hora, ref=ref,
         origen=Comprobante.ORIGEN_MANUAL,
-        estado=Comprobante.CONFIRMADO, ruta=item.lote.ruta,
+        ruta=item.lote.ruta,
         es_duplicado=original is not None, duplicado_de=original,
     )
+    comp.marcar_confirmado(Comprobante.VIA_CONC_AGREGAR, request.user, item)
     # Copiar la imagen del ítem al comprobante (archivo independiente).
     if item.imagen:
         with item.imagen.open("rb") as fh:
@@ -712,7 +713,7 @@ def confirmar_pendiente(request, pk):
     item = get_object_or_404(Conciliacion, pk=pk, negocio=negocio)
     if request.method == "POST" and item.resultado == Conciliacion.PENDIENTE and item.comprobante:
         comp = item.comprobante
-        comp.estado = Comprobante.CONFIRMADO
+        comp.marcar_confirmado(Comprobante.VIA_CONC_PENDIENTE, request.user, item)
         comp.ruta = item.ruta
         comp.save()
         item.resultado = Conciliacion.OK

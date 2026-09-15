@@ -185,6 +185,50 @@ if not DEBUG:
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
+# Logging — con DEBUG=False Django se traga los 500 y solo deja el traceback en
+# stderr del proceso. Esto además lo escribe en logs/django.log para poder
+# diagnosticar errores del servidor después de que ocurren.
+LOG_DIR = Path(os.getenv('DJANGO_LOG_DIR', str(BASE_DIR / 'logs')))
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{asctime} {levelname} {name} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOG_DIR / 'django.log'),
+            'maxBytes': 5 * 1024 * 1024,
+            'backupCount': 3,
+            'encoding': 'utf-8',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console', 'file'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        # Los 500 del servidor llegan aquí con el traceback completo.
+        'django.request': {
+            'handlers': ['console', 'file'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+    },
+}
+
+
 # Autenticación
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'dashboard:home'
