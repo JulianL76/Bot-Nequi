@@ -1,0 +1,487 @@
+@import "tailwindcss";
+
+/* Fuentes self-hosted (paquetes npm). Entran al bundle: sin depender de Google
+   Fonts, sin FOUT, y la PWA conserva su tipografía offline. */
+@import "./fonts.css";
+
+@import "./tokens.css";
+
+/* Tailwind 4 detecta clases por archivo; hay que apuntarle a las plantillas
+   Django, que viven fuera de frontend/. */
+@source "../";                 /* componentes .jsx de la app */
+@source "../../templates";     /* la plantilla raíz de Inertia */
+
+/* ============================================================================
+   BASE
+   ========================================================================== */
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    background: var(--surface-sunken);
+    color: var(--content);
+    font-size: 13px;          /* base compacta: es una herramienta de trabajo */
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  p { text-wrap: pretty; }
+
+  /* Cifras siempre alineadas en columna: sin saltos al refrescar contadores. */
+  th, td, .nums, input[type="number"] { font-variant-numeric: tabular-nums; }
+
+  ::selection { background: var(--color-brand-200); color: var(--color-brand-950); }
+  .dark ::selection { background: var(--color-brand-800); color: var(--color-brand-50); }
+
+  /* Foco visible y consistente en toda la app (navegación por teclado). */
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
+  /* Contorno de 1px en las imágenes: da profundidad sin ensuciar el borde.
+     Negro puro al 10% en claro, blanco puro en oscuro — un neutro teñido se
+     mezcla con el fondo y se lee como suciedad en el filo. */
+  img { outline: 1px solid oklch(0 0 0 / 0.1); outline-offset: -1px; }
+  .dark img { outline-color: oklch(1 0 0 / 0.1); }
+
+  /* Scrollbars discretos que respetan el tema. */
+  * { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--line-strong);
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  /* Cambio de tema: se apagan TODAS las transiciones durante el intercambio.
+     Si no, color, fondo, borde y sombra de cada elemento se animan a la vez y
+     el cambio se ve como una mancha en vez de un corte limpio.
+     La clase la pone y la quita theme.js en el mismo frame. */
+  .cambiando-tema, .cambiando-tema *, .cambiando-tema *::before, .cambiando-tema *::after {
+    transition: none !important;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+      /* Sin esto, una entrada escalonada deja el contenido invisible durante
+         todo su retraso (el `both` mantiene el estado inicial), y las
+         animaciones infinitas —halo, brillo— seguirían iterando sin fin. */
+      animation-delay: 0ms !important;
+      transition-delay: 0ms !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
+}
+
+/* ============================================================================
+   ROLES TIPOGRÁFICOS
+
+   Antes había nueve tamaños sueltos (9, 10, 11, 12, 13, 14, 16, 18, 20 px) sin
+   sistema detrás, y dos de ellos —13 semibold y 12 medium— tan parecidos que no
+   podían cargar trabajos distintos: todo pesaba igual y no había jerarquía.
+
+   Ahora son SEIS roles con nombre. Cada salto combina tamaño **y** peso **y**
+   color, no tamaño a secas: así se distinguen de un vistazo sin leer el texto.
+
+     t-titulo  18/700  contenido   el título de la pantalla (uno por vista)
+     t-dato    15/700  contenido   la cifra que se viene a ver (tabular)
+     t-seccion 13/600  contenido   cabeceras de tarjeta y de bloque
+     t-cuerpo  13/400  contenido   texto normal, celdas de tabla
+     t-meta    11/400  atenuado    fecha, referencia, autoría, pie
+     t-micro   10/700  sutil       badges y antetítulos, en versalitas
+
+   Al escribir una pantalla nueva: elegir el rol por su PAPEL, no por cómo se
+   ve. Si hace falta un tamaño que no está, casi siempre sobra un rol.
+   ========================================================================== */
+@utility t-titulo {
+  font-family: var(--font-display);
+  font-size: 1.125rem;      /* 18px */
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.015em; /* los tamaños grandes piden tracking negativo */
+  text-wrap: balance;
+}
+
+@utility t-dato {
+  font-size: 0.9375rem;     /* 15px */
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+@utility t-seccion {
+  font-size: 0.8125rem;     /* 13px */
+  line-height: 1.3;
+  font-weight: 600;
+}
+
+@utility t-cuerpo {
+  font-size: 0.8125rem;     /* 13px */
+  line-height: 1.45;
+  font-weight: 400;
+}
+
+@utility t-meta {
+  font-size: 0.6875rem;     /* 11px */
+  line-height: 1.4;
+  font-weight: 400;
+  color: var(--content-muted);
+}
+
+@utility t-micro {
+  font-size: 0.625rem;      /* 10px */
+  line-height: 1;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;   /* las versalitas pequeñas se apelmazan sin esto */
+  color: var(--content-subtle);
+}
+
+/* ============================================================================
+   CAPAS — utilidades con nombre en lugar de z-index arbitrarios.
+   ========================================================================== */
+@utility layer-sticky   { z-index: var(--z-sticky); }
+@utility layer-header   { z-index: var(--z-header); }
+@utility layer-bar      { z-index: var(--z-bar); }
+@utility layer-sheet    { z-index: var(--z-sheet); }
+@utility layer-modal    { z-index: var(--z-modal); }
+@utility layer-viewer   { z-index: var(--z-viewer); }
+@utility layer-toast    { z-index: var(--z-toast); }
+@utility layer-progress { z-index: var(--z-progress); }
+
+/* ============================================================================
+   COMPONENTES — reemplazan a DaisyUI con vocabulario propio de la marca.
+
+   `.btn` y `.badge` se declaran con @utility (no dentro de @layer components):
+   en Tailwind 4 solo las utilidades pueden componerse con @apply, y las
+   variantes de abajo se construyen encima de ellas.
+   ========================================================================== */
+
+@utility btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  height: var(--h-control);
+  padding-inline: 0.625rem;
+  border-radius: var(--radius-field);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  user-select: none;
+  /* Solo lo que cambia, y rápido: es una interacción de alta frecuencia. */
+  transition-property: background-color, color, border-color, box-shadow, scale;
+  transition-duration: var(--t-fast);
+  transition-timing-function: ease-out;
+
+  &:active { scale: 0.96; }            /* feedback táctil inmediato */
+  &:disabled { opacity: 0.5; pointer-events: none; }
+  & svg { width: 0.875rem; height: 0.875rem; flex-shrink: 0; }
+}
+
+@utility badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  height: 1.25rem;
+  padding-inline: 0.4375rem;
+  border-radius: var(--radius-pill);
+  /* Mismo rol que los antetítulos: 10/700 en versalitas espaciadas. */
+  font-size: 0.625rem;
+  line-height: 1;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+
+  & svg { width: 0.625rem; height: 0.625rem; flex-shrink: 0; }
+}
+
+@layer components {
+
+  /* ---- Botones ----------------------------------------------------------- */
+  .btn-primary   { @apply btn bg-brand-600 text-white shadow-xs hover:bg-brand-700; }
+  .btn-secondary { @apply btn bg-surface text-content border border-line hover:bg-surface-hover hover:border-line-strong; }
+  .btn-ghost     { @apply btn text-muted hover:bg-surface-hover hover:text-content; }
+  .btn-danger    { @apply btn bg-bad-600 text-white hover:bg-bad-500; }
+  .btn-success   { @apply btn bg-ok-600 text-white hover:bg-ok-500; }
+  .btn-sm        { @apply h-[var(--h-control-sm)] px-2 text-xs gap-1; }
+  .btn-lg        { @apply h-[var(--h-control-lg)] px-4 text-sm; }
+  .btn-icon      { @apply w-[var(--h-control)] px-0; }
+  .btn-icon.btn-sm { @apply w-[var(--h-control-sm)]; }
+
+  /* Estado ocupado: el botón conserva su tamaño y muestra el giro en su lugar.
+     No se deshabilita — deshabilitarlo antes de enviar borraría su name/value
+     del formulario (así se envían las acciones en lote). */
+  .btn-cargando { @apply pointer-events-none relative text-transparent; }
+  .btn-cargando::after {
+    content: "";
+    position: absolute;
+    width: 0.875rem; height: 0.875rem;
+    border-radius: 9999px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    color: inherit;
+    animation: girar 0.6s linear infinite;
+  }
+  .btn-primary.btn-cargando::after,
+  .btn-danger.btn-cargando::after,
+  .btn-success.btn-cargando::after { color: #fff; }
+
+  /* ---- Superficies ------------------------------------------------------- */
+  .card { @apply bg-surface border border-line rounded-[var(--radius-card)]; }
+  .card-pad { @apply p-3 md:p-4; }
+  .card-header { @apply flex items-center gap-2 px-3 md:px-4 h-11 border-b border-line; }
+  .card-title { @apply t-seccion; }
+
+  /* ---- Formularios ------------------------------------------------------- */
+  .field {
+    @apply w-full h-[var(--h-control)] px-2.5 rounded-[var(--radius-field)] bg-surface text-content
+           border border-line text-[13px] placeholder:text-subtle
+           focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20;
+    transition-property: border-color, box-shadow;
+    transition-duration: var(--t-fast);
+  }
+  textarea.field { @apply h-auto py-2 leading-relaxed; }
+  select.field { @apply pr-7; }
+  .label { @apply t-meta block font-semibold text-muted mb-1; }
+  .hint { @apply t-meta mt-1 text-subtle; }
+  .error-text { @apply t-meta mt-1 font-semibold text-bad-600; }
+
+  /* ---- Badges ------------------------------------------------------------ */
+  .badge-neutral { @apply badge bg-surface-inset text-muted border border-line; }
+  .badge-brand { @apply badge bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300; }
+  .badge-ok { @apply badge bg-ok-100 text-ok-600 dark:bg-ok-500/15 dark:text-ok-400; }
+  .badge-warn { @apply badge bg-warn-100 text-warn-600 dark:bg-warn-500/15 dark:text-warn-400; }
+  .badge-bad { @apply badge bg-bad-100 text-bad-600 dark:bg-bad-500/15 dark:text-bad-400; }
+
+  /* La ruta NO es un estado: es una etiqueta de identidad. Los cinco tonos de
+     arriba están reservados a estados, y en tinte suave los cinco se parecen
+     entre sí —"Ruta 18" en brand se leía igual que "Procesando"—. Por eso este
+     va SÓLIDO y en neutro: contrasta más que cualquier estado y no comparte
+     color con ninguno, así que se distingue por forma y no solo por matiz. */
+  .badge-ruta {
+    @apply badge bg-ink-900 text-white border border-transparent
+           dark:bg-ink-400 dark:text-ink-950;
+  }
+
+  /* Punto de estado: en tablas largas se lee más rápido que el texto. */
+  .dot { @apply inline-block w-1.5 h-1.5 rounded-full shrink-0; }
+
+  /* ---- Tablas ------------------------------------------------------------ */
+  .table-wrap { @apply overflow-x-auto overscroll-x-contain; }
+  .table { @apply w-full border-collapse; }
+  .table thead th {
+    @apply t-micro sticky top-0 layer-sticky bg-surface-inset text-left
+           px-2.5 py-2 border-b border-line whitespace-nowrap;
+  }
+  .table tbody td { @apply t-cuerpo px-2.5 py-1.5 border-b border-line align-middle; }
+  .table tbody tr { transition: background-color var(--t-fast) ease-out; }
+  .table tbody tr:hover { @apply bg-surface-hover/60; }
+  .table tbody tr:last-child td { @apply border-b-0; }
+
+  /* Fila seleccionada: el borde izquierdo la marca sin teñirla entera, que a
+     20 filas seleccionadas se vuelve ilegible. */
+  .table tbody tr:has(.row-check:checked) { @apply bg-brand-50 dark:bg-brand-500/10; }
+  .table tbody tr:has(.row-check:checked) td:first-child { box-shadow: inset 2px 0 0 var(--color-brand-600); }
+
+  /* ---- Navegación -------------------------------------------------------- */
+  /* El menú es navegación, no datos: más alto y más legible que el contenido. */
+  .nav-link {
+    @apply relative flex items-center gap-2.5 h-[var(--h-nav-item)] px-3 rounded-[var(--radius-field)]
+           text-sm font-medium text-shell-content
+           hover:bg-white/10 hover:text-white;
+    transition-property: background-color, color;
+    transition-duration: var(--t-fast);
+  }
+  .nav-link svg { @apply w-[18px] h-[18px] shrink-0; }
+  .nav-link.active { @apply bg-brand-600 text-white; }
+  .nav-section {
+    @apply px-3 pt-4 pb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-ink-600;
+  }
+
+  .navtab {
+    @apply flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium text-subtle;
+    transition: color var(--t-fast) ease-out;
+  }
+  .navtab .icon-wrapper {
+    @apply relative flex items-center justify-center w-12 h-7 rounded-[var(--radius-pill)];
+  }
+  .navtab .icon-wrapper svg { @apply relative z-10 w-5 h-5; }
+  .navtab.active .icon-wrapper, .navtab.active span { @apply text-brand-600 dark:text-brand-400; }
+  .navtab.active span { @apply font-semibold; }
+  .navtab:active { scale: 0.96; }
+
+  .sheet-link {
+    @apply flex items-center gap-2.5 px-3 py-3 rounded-[var(--radius-field)] text-sm font-medium
+           text-content hover:bg-surface-hover;
+    transition: background-color var(--t-fast) ease-out;
+  }
+  .sheet-link:active { scale: 0.98; }
+  .sheet-link svg { @apply w-[18px] h-[18px] text-muted shrink-0; }
+
+  /* ---- Estados ----------------------------------------------------------- */
+  .skeleton {
+    @apply rounded-[var(--radius-field)] bg-surface-inset relative overflow-hidden;
+  }
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    /* translate, no background-position: así lo compone la GPU. */
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.35), transparent);
+    animation: brillo 1.4s infinite;
+  }
+  .dark .skeleton::after {
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.06), transparent);
+  }
+
+  .empty-state { @apply flex flex-col items-center justify-center text-center py-10 px-6; }
+  .empty-state svg { @apply w-9 h-9 text-subtle mb-3; }
+
+  /* ---- Layout ------------------------------------------------------------ */
+  .page-title { @apply t-titulo; }
+  .page-sub { @apply t-meta mt-0.5; }
+  .divider { @apply h-px bg-line my-3; }
+}
+
+/* ============================================================================
+   FILEPOND — la librería se sirve desde static/vendor (ver _filepond_head.html).
+   Aquí solo se adapta su apariencia a la marca; antes estos colores iban en un
+   <style> con violeta escrito a mano dentro de la plantilla. El prefijo `body`
+   es necesario: filepond.min.css se enlaza después del bundle y si no, gana él.
+   ========================================================================== */
+body .filepond--root { font-family: inherit; margin-bottom: 0; }
+body .filepond--panel-root {
+  background: var(--color-brand-50);
+  border: 1px dashed var(--color-brand-300);
+  border-radius: var(--radius-card);
+}
+.dark body .filepond--panel-root {
+  background: color-mix(in srgb, var(--color-brand-500) 10%, transparent);
+  border-color: color-mix(in srgb, var(--color-brand-400) 45%, transparent);
+}
+body .filepond--drop-label { color: var(--color-brand-700); font-weight: 500; }
+.dark body .filepond--drop-label { color: var(--color-brand-300); }
+body .filepond--label-action { color: var(--color-brand-600); text-decoration-color: var(--color-brand-600); }
+.dark body .filepond--label-action { color: var(--color-brand-300); text-decoration-color: var(--color-brand-300); }
+body .filepond--item-panel { background: var(--color-brand-600); }
+body .filepond--credits { display: none; }
+
+/* Sin lista de archivos: con cientos de imágenes, una fila por cada una estira
+   la página muchísimo. El progreso real lo muestra .fp-estado. */
+body .filepond--list-scroller,
+body .filepond--list { display: none !important; }
+
+/* Mientras FilePond no toma el input se esconde el selector nativo: con
+   hx-boost los <script src> cargan async y quedaba a la vista el
+   "Sin archivos seleccionados" del navegador. El atributo lo gestiona el JS,
+   así que sin JavaScript el input se ve y sigue funcionando. */
+body .filepond-input[data-esperando] { display: none; }
+
+/* Controles nativos con el color de la marca (los que no pasan por Radix). */
+input[type="checkbox"], input[type="radio"] { accent-color: var(--color-brand-600); }
+
+/* ============================================================================
+   UTILIDADES Y ANIMACIÓN
+   ========================================================================== */
+@utility glass {
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: saturate(180%) blur(10px);
+}
+
+@keyframes brillo { 100% { transform: translateX(100%); } }
+@keyframes aparecer     { from { opacity: 0; } }
+@keyframes desaparecer  { to   { opacity: 0; } }
+/* OJO con lo centrado horizontalmente (`-translate-x-1/2`): Tailwind v4 lo
+   resuelve con la propiedad `translate`, no con `transform`, y las dos se
+   COMPONEN. Si estos fotogramas usaran `transform: translate(-50%, …)` el
+   elemento entraría desplazado un ancho entero y saltaría a su sitio al
+   terminar. Por eso animan `translate` —y `scale` por separado—, que es la
+   misma propiedad que usa Tailwind. */
+
+/* El modal entra un poco por debajo y a 96%: sugiere que viene "hacia" el
+   usuario. La salida es más corta que la entrada, nunca al revés. */
+@keyframes entrar-modal { from { opacity: 0; translate: -50% 4px; scale: 0.96; } to { opacity: 1; translate: -50% 0; scale: 1; } }
+@keyframes salir-modal  { from { opacity: 1; translate: -50% 0; scale: 1; } to { opacity: 0; translate: -50% 2px; scale: 0.98; } }
+/* Menús: salen del borde que los ancla, no del centro de la pantalla. */
+@keyframes entrar-menu  { from { opacity: 0; transform: translateY(-4px) scale(0.97); } }
+/* Menús y selects al cerrarse: la salida es más corta que la entrada. */
+@keyframes salir-menu   { to   { opacity: 0; transform: translateY(-4px) scale(0.98); } }
+/* La barra de acciones sube desde el borde inferior y se va por donde vino.
+   Ambas mantienen el -50% horizontal: sin él la barra se iría al centrar. */
+@keyframes entrar-barra { from { opacity: 0; translate: -50% 8px; } to { opacity: 1; translate: -50% 0; } }
+@keyframes salir-barra  { from { opacity: 1; translate: -50% 0; } to { opacity: 0; translate: -50% 8px; } }
+@keyframes girar  { to { transform: rotate(360deg); } }
+@keyframes entrar { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* Entrada del contenido tras navegar. Solo opacity y transform, y por debajo
+   de 200 ms: el usuario no debe esperar a la animación para leer.
+
+   SIN `both` a propósito. El relleno dejaba la animación aplicada para siempre
+   tras terminar y, con ella, un `transform` en el contenedor de página; eso
+   convierte al contenedor en bloque contenedor de sus descendientes `fixed`,
+   que dejan de anclarse al viewport. Como el fotograma final es idéntico al
+   estilo base y no hay retraso, quitarlo no cambia nada visible. */
+.rise { animation: entrar 160ms var(--ease-out-soft); }
+
+/* View Transitions queda desactivado a propósito: al intercambiar solo la
+   región #page ya no hay repintado global, y el crossfade de la raíz era
+   justamente lo que producía el parpadeo entre páginas. */
+
+/* Entrada escalonada de una rejilla (fichas de cifra, tarjetas de lote). El
+   retraso se corta en el octavo hijo: más allá el ojo ya no lee "secuencia",
+   solo percibe que la pantalla tarda. Por eso tampoco se usa en las tablas,
+   que ahora pueden traer 1000 filas. */
+.rise-lista > * { animation: entrar 200ms var(--ease-out-soft) both; }
+.rise-lista > *:nth-child(2) { animation-delay: 30ms; }
+.rise-lista > *:nth-child(3) { animation-delay: 60ms; }
+.rise-lista > *:nth-child(4) { animation-delay: 90ms; }
+.rise-lista > *:nth-child(5) { animation-delay: 120ms; }
+.rise-lista > *:nth-child(6) { animation-delay: 150ms; }
+.rise-lista > *:nth-child(7) { animation-delay: 180ms; }
+.rise-lista > *:nth-child(n+8) { animation-delay: 200ms; }
+
+/* Indicador de "esto sigue vivo": un halo que sale del punto de estado y se
+   desvanece. Dice lo mismo que un parpadeo de opacidad pero sin apagar el
+   punto, que es justo el dato que se quiere leer. Solo para procesos en curso;
+   como decoración sería ruido. */
+.dot-vivo, .badge-vivo .dot { position: relative; }
+.dot-vivo::after, .badge-vivo .dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: inherit;
+  /* Detrás del punto: si pasara por encima lo velaría al desvanecerse, que es
+     justo el parpadeo que se quería evitar. */
+  z-index: -1;
+  animation: halo 1.8s var(--ease-out-soft) infinite;
+}
+@keyframes halo { from { opacity: 0.45; transform: scale(1); } to { opacity: 0; transform: scale(2.6); } }
+
+/* Barra de progreso de un proceso realmente en marcha: un brillo recorre la
+   parte llena. Distingue "avanzando despacio" de "colgado", que con la barra
+   quieta se ven igual. */
+.barra-viva { position: relative; overflow: hidden; }
+.barra-viva::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.3), transparent);
+  animation: brillo 1.6s infinite;
+}

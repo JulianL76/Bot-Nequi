@@ -7,7 +7,9 @@ from django.db.models import Count, Sum
 from django.db.models.functions import TruncDate
 from django.http import HttpResponse
 from django.shortcuts import render
+from django.urls import reverse
 from django.utils import timezone
+from inertia import render as inertia_render
 
 from accounts.utils import get_negocio
 from comprobantes.models import Comprobante
@@ -165,21 +167,38 @@ def home(request):
         concils = concils.filter(creado_en__date=fecha_filtro)
     concil_pendientes = concils.count()
 
-    contexto = {
-        "negocio": negocio,
-        "fecha_filtro": fecha_filtro,
-        "total_facturas": total_facturas,
-        "total_monto": total_monto,
-        "chart_labels": list(serie.keys()),
-        "chart_values": list(serie.values()),
-        "top_contactos": top_contactos,
-        "ultimos": qs.select_related("negocio")[:8],
-        "sin_confirmar": sin_confirmar,
-        "monto_sin_confirmar": monto_sin_confirmar,
-        "concil_pendientes": concil_pendientes,
-        "saludo": get_greeting(request),
-    }
-    return render(request, "dashboard/home.html", contexto)
+    return inertia_render(
+        request,
+        "Dashboard/Home",
+        props={
+            "saludo": get_greeting(request),
+            "fecha": fecha_filtro.isoformat() if fecha_filtro else None,
+            "totalComprobantes": total_facturas,
+            "totalMonto": float(total_monto),
+            "sinConfirmar": sin_confirmar,
+            "montoSinConfirmar": float(monto_sin_confirmar),
+            "conciliacionesPendientes": concil_pendientes,
+            "serie": {
+                "etiquetas": list(serie.keys()),
+                "valores": list(serie.values()),
+            },
+            "topContactos": [
+                {"nombre": c["de"] or "—", "total": float(c["total"] or 0), "n": c["n"]}
+                for c in top_contactos
+            ],
+            "ultimos": [
+                {
+                    "id": c.pk,
+                    "de": c.de,
+                    "ref": c.ref,
+                    "valor": float(c.valor),
+                    "creadoEn": c.creado_en.isoformat(),
+                }
+                for c in qs[:8]
+            ],
+            "urlsPagina": {"exportar": reverse("dashboard:exportar_excel")},
+        },
+    )
 
 
 @login_required
@@ -193,8 +212,35 @@ def pendientes(request):
     else:
         comps = Comprobante.objects.none()
         concils = Conciliacion.objects.none()
-    return render(request, "dashboard/pendientes.html",
-                  {"comprobantes": comps, "conciliaciones": concils})
+    return inertia_render(
+        request,
+        "Dashboard/Pendientes",
+        props={
+            "comprobantes": [
+                {
+                    "id": c.pk,
+                    "de": c.de,
+                    "ref": c.ref,
+                    "valor": float(c.valor),
+                    "fecha": c.fecha,
+                    "hora": c.hora,
+                    "imagen": c.imagen.url if c.imagen else None,
+                }
+                for c in comps[:200]
+            ],
+            "conciliaciones": [
+                {
+                    "id": k.pk,
+                    "loteId": k.lote_id,
+                    "de": k.comprobante.de if k.comprobante_id else None,
+                    "valor": float(k.comprobante.valor) if k.comprobante_id else None,
+                    "ref": k.ref_leida or (k.comprobante.ref if k.comprobante_id else None),
+                    "ruta": k.ruta.numero if k.ruta_id else None,
+                }
+                for k in concils[:200]
+            ],
+        },
+    )
 
 
 @login_required

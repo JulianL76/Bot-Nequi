@@ -5,6 +5,10 @@ from django.db.models import Count, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from inertia import render as inertia_render
+
+from core.peticiones import datos_post
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from accounts.utils import get_negocio
@@ -46,7 +50,18 @@ def _excel_conciliaciones(qs, filename="conciliaciones.xlsx"):
 
 
 def _filtrar_conciliaciones(request, negocio):
-    """Aplica los filtros (r/desde/hasta/ruta) y devuelve (queryset, contexto).
+    """Aplica los filtros y devuelve (queryset, contexto).
+
+    Los filtros son de DOS clases y el orden importa:
+
+    · **Alcance** (fechas y rutas): delimitan de qué universo se habla.
+    · **Resultado** (`?r=`): elige una porción DENTRO de ese universo.
+
+    Por eso el contexto incluye `qs_alcance`, el queryset con fechas y rutas
+    pero sin el resultado. Las cifras de cabecera se calculan sobre él: si se
+    calcularan sobre el queryset final, filtrar por "No está" dejaría el resto
+    de cifras en cero y el total valdría lo mismo que esa porción — los números
+    dejarían de servir como referencia y parecerían bailar en cada clic.
 
     Compartido por el panel paginado y la exportación a Excel para que ambos
     respeten exactamente los mismos filtros.
@@ -59,14 +74,7 @@ def _filtrar_conciliaciones(request, negocio):
           .select_related("lote", "lote__ruta", "ruta", "comprobante")
           if negocio else Conciliacion.objects.none())
 
-    # Resultado (mismo criterio que lote_detalle: "obs" = con observaciones).
     r = request.GET.get("r", "").strip()
-    validos = {Conciliacion.OK, Conciliacion.PENDIENTE, Conciliacion.NO_ESTA,
-               Conciliacion.REVISION, Conciliacion.DUPLICADO}
-    if r in validos:
-        qs = qs.filter(resultado=r)
-    elif r == "obs":
-        qs = qs.exclude(observaciones="")
 
     # Rango de fechas sobre fecha_dt (si vienen invertidas, se intercambian).
     desde = request.GET.get("desde", "").strip()
@@ -99,9 +107,85 @@ def _filtrar_conciliaciones(request, negocio):
             cond |= Q(ruta__isnull=True)
         qs = qs.filter(cond)
 
+    # Hasta aquí solo se aplicó el alcance: este es el universo de referencia.
+    qs_alcance = qs
+
+    # Resultado (mismo criterio que lote_detalle: "obs" = con observaciones).
+    validos = {Conciliacion.OK, Conciliacion.PENDIENTE, Conciliacion.NO_ESTA,
+               Conciliacion.REVISION, Conciliacion.DUPLICADO}
+    if r in validos:
+        qs = qs.filter(resultado=r)
+    elif r == "obs":
+        qs = qs.exclude(observaciones="")
+
     ctx = {"r": r, "desde": desde, "hasta": hasta, "desde_obj": desde_obj,
-           "hasta_obj": hasta_obj, "ruta_sel": ids, "ruta_sin": incluir_sin}
+           "hasta_obj": hasta_obj, "ruta_sel": ids, "ruta_sin": incluir_sin,
+           "qs_alcance": qs_alcance}
     return qs, ctx
+
+
+def serializar_item(it):
+    """Forma en la que un ítem de conciliación viaja al front."""
+    original = getattr(it, "original", None)
+    return {
+        "id": it.pk,
+        "de": it.de,
+        "para": it.para,
+        "num": it.num,
+        "tipo": it.get_tipo_display() if it.tipo else "",
+        "valor": float(it.valor),
+        "valorRaw": it.valor_raw,
+        "fecha": it.fecha,
+        "hora": it.hora,
+        "ref": it.ref,
+        "resultado": it.resultado,
+        "resultadoTexto": it.get_resultado_display() if it.resultado else "",
+        "motivoRevision": it.motivo_revision,
+        "aviso": it.aviso,
+        "observaciones": it.observaciones,
+        "imagen": it.imagen.url if it.imagen else None,
+        "loteId": it.lote_id,
+        "ruta": it.ruta.numero if it.ruta_id else None,
+        "comprobante": (
+            {
+                "id": it.comprobante.pk,
+                "de": it.comprobante.de,
+                "valor": float(it.comprobante.valor),
+                "ref": it.comprobante.ref,
+                "manual": it.comprobante.origen == Comprobante.ORIGEN_MANUAL,
+            }
+            if it.comprobante_id else None
+        ),
+        "original": (
+            {
+                "itemId": original.pk,
+                "loteId": original.lote_id,
+                "ruta": original.lote.ruta.numero if original.lote and original.lote.ruta_id else None,
+            }
+            if original else None
+        ),
+    }
+
+
+def serializar_lote_conc(l):
+    """Forma en la que un lote de conciliación viaja al front."""
+    return {
+        "id": l.pk,
+        "estado": l.estado,
+        "estadoTexto": l.get_estado_display(),
+        "ruta": l.ruta.numero if l.ruta_id else None,
+        "rutaNombre": l.ruta.nombre if l.ruta_id else None,
+        "total": l.total,
+        "procesadas": l.procesadas,
+        "ok": l.ok,
+        "pendientes": l.pendientes,
+        "noEsta": l.no_esta,
+        "revision": l.revision,
+        "duplicados": l.duplicados,
+        "progreso": l.progreso_pct,
+        "creadoEn": l.creado_en.isoformat(),
+        "nObs": getattr(l, "n_obs", 0),
+    }
 
 
 def _volver_detalle(lote_id, r, sort=""):
@@ -139,7 +223,14 @@ def lista(request):
           if negocio else LoteConciliacion.objects.none())
     paginator = Paginator(qs, 20)
     page = paginator.get_page(request.GET.get("page"))
-    return render(request, "conciliaciones/lista.html", {"page": page})
+    return inertia_render(
+        request,
+        "Conciliaciones/Lista",
+        props={
+            "lotes": [serializar_lote_conc(l) for l in page.object_list],
+            "paginacion": {"pagina": page.number, "paginas": page.paginator.num_pages},
+        },
+    )
 
 
 @login_required
@@ -156,16 +247,19 @@ def panel(request):
 
     qs, ctx = _filtrar_conciliaciones(request, negocio)
 
-    # Stats sobre TODO lo filtrado (no solo la página actual).
-    stats = qs.aggregate(
+    # Cifras sobre el ALCANCE (fechas/rutas), no sobre el resultado elegido:
+    # así siguen siendo una referencia estable y sirven de navegación.
+    alcance = ctx["qs_alcance"]
+    stats = alcance.aggregate(
         total=Count("id"),
+        obs=Count("id", filter=~Q(observaciones="")),
         ok=Count("id", filter=Q(resultado=Conciliacion.OK)),
         pendiente=Count("id", filter=Q(resultado=Conciliacion.PENDIENTE)),
         no_esta=Count("id", filter=Q(resultado=Conciliacion.NO_ESTA)),
         revision=Count("id", filter=Q(resultado=Conciliacion.REVISION)),
         duplicado=Count("id", filter=Q(resultado=Conciliacion.DUPLICADO)),
     )
-    stats["manuales"] = qs.filter(comprobante__origen=Comprobante.ORIGEN_MANUAL).count()
+    stats["manuales"] = alcance.filter(comprobante__origen=Comprobante.ORIGEN_MANUAL).count()
 
     # Ordenamiento (mismo whitelist que lote_detalle).
     sort = request.GET.get("sort", "").strip()
@@ -183,9 +277,38 @@ def panel(request):
     page = paginator.get_page(request.GET.get("page"))
 
     rutas = Ruta.objects.filter(negocio=negocio, activa=True)
-    return render(request, "conciliaciones/panel.html",
-                  {"page": page, "stats": stats, "sort": sort, "tam": tam,
-                   "rutas": rutas, **ctx})
+    return inertia_render(
+        request,
+        "Conciliaciones/Panel",
+        props={
+            "items": [serializar_item(it) for it in page.object_list],
+            "paginacion": {
+                "pagina": page.number,
+                "paginas": page.paginator.num_pages,
+                "tam": int(tam),
+                "total": page.paginator.count,
+            },
+            "stats": {
+                "total": stats["total"],
+                "obs": stats["obs"],
+                "ok": stats["ok"],
+                "pendiente": stats["pendiente"],
+                "noEsta": stats["no_esta"],
+                "revision": stats["revision"],
+                "duplicado": stats["duplicado"],
+                "manuales": stats["manuales"],
+            },
+            "filtros": {
+                "r": ctx["r"],
+                "desde": ctx["desde"],
+                "hasta": ctx["hasta"],
+                "ruta": ctx["ruta_sel"],
+                "rutaSin": ctx["ruta_sin"],
+                "sort": sort,
+            },
+            "rutas": [{"id": r.pk, "numero": r.numero, "nombre": r.nombre} for r in rutas],
+        },
+    )
 
 
 @login_required
@@ -304,7 +427,7 @@ def conciliar(request):
     rutas = Ruta.objects.filter(negocio=negocio, activa=True)
 
     if request.method == "POST":
-        ruta = get_object_or_404(Ruta, pk=request.POST.get("ruta"), negocio=negocio)
+        ruta = get_object_or_404(Ruta, pk=datos_post(request).get("ruta"), negocio=negocio)
 
         from django.db import transaction
         with transaction.atomic():
@@ -337,11 +460,18 @@ def conciliar(request):
         return redirect("conciliaciones:lote_detalle", lote_id=lote.id)
 
     lote = _borrador(negocio, request.user)
-    return render(request, "conciliaciones/conciliar.html", {
-        "negocio": negocio,
-        "rutas": rutas,
-        "guardadas": lote.items.count() if lote else 0,
-    })
+    return inertia_render(
+        request,
+        "Conciliaciones/Conciliar",
+        props={
+            "rutas": [{"id": r.pk, "numero": r.numero, "nombre": r.nombre} for r in rutas],
+            "guardadas": lote.items.count() if lote else 0,
+            "urlsPagina": {
+                "subirArchivo": reverse("conciliaciones:conciliar_archivo"),
+                "descartar": reverse("conciliaciones:descartar_borrador"),
+            },
+        },
+    )
 
 
 @login_required
@@ -378,8 +508,17 @@ def lote_detalle(request, lote_id):
                            .filter(comprobante_id=it.comprobante_id, resultado=Conciliacion.OK)
                            .select_related("lote", "lote__ruta").order_by("creado_en").first())
 
-    return render(request, "conciliaciones/lote_detalle.html",
-                  {"lote": lote, "items": items, "filtro_r": r, "sort": sort, "n_obs_lote": n_obs_lote})
+    return inertia_render(
+        request,
+        "Conciliaciones/LoteDetalle",
+        props={
+            "lote": serializar_lote_conc(lote),
+            "items": [serializar_item(it) for it in items],
+            "filtros": {"r": r, "sort": sort},
+            "nObs": n_obs_lote,
+            "urlsPagina": {"progreso": reverse("conciliaciones:lote_progreso", args=[lote.pk])},
+        },
+    )
 
 
 @login_required
@@ -387,8 +526,8 @@ def reprocesar_lote_conc(request, lote_id):
     """Reprocesa TODOS los ítems del lote en orden (respetando confirmaciones manuales)."""
     negocio = get_negocio(request.user)
     lote = get_object_or_404(LoteConciliacion, pk=lote_id, negocio=negocio)
-    r = request.POST.get("r", "").strip()
-    sort = request.POST.get("sort", "").strip()
+    r = datos_post(request).get("r", "").strip()
+    sort = datos_post(request).get("sort", "").strip()
     if request.method == "POST" and lote.estado != LoteConciliacion.PROCESANDO:
         n = 0
         for it in lote.items.select_related("comprobante").order_by("id"):
@@ -499,7 +638,7 @@ def eliminar_lotes_masivo(request):
     if not negocio or request.method != "POST":
         return redirect("conciliaciones:lista")
 
-    ids = [i for i in request.POST.getlist("seleccion") if i.isdigit()]
+    ids = [i for i in datos_post(request).getlist("seleccion") if i.isdigit()]
     lotes = list(LoteConciliacion.objects.filter(negocio=negocio, pk__in=ids))
     n_revertidos = n_borrados = 0
     for lote in lotes:
@@ -518,24 +657,24 @@ def eliminar_lotes_masivo(request):
     return redirect("conciliaciones:lista")
 
 
-def _aplicar_campos_post(item, request):
+def _aplicar_campos_post(item, datos):
     """Vuelca los campos editables del formulario de ajuste en el item (sin guardar)."""
     from core.parsing import limpiar_monto, parse_fecha, parse_hora
 
-    item.de = request.POST.get("de", item.de)
-    item.para = request.POST.get("para", item.para).strip()
-    item.num = request.POST.get("num", item.num).strip()
-    item.tipo = (request.POST.get("tipo", item.tipo) or "").strip().lower()
-    item.ref = request.POST.get("ref", item.ref).strip()
-    valor_in = request.POST.get("valor", "")
+    item.de = datos.get("de", item.de)
+    item.para = datos.get("para", item.para).strip()
+    item.num = datos.get("num", item.num).strip()
+    item.tipo = (datos.get("tipo", item.tipo) or "").strip().lower()
+    item.ref = datos.get("ref", item.ref).strip()
+    valor_in = datos.get("valor", "")
     item.valor_raw = valor_in
     item.valor = limpiar_monto(valor_in) or 0
-    item.fecha = request.POST.get("fecha", item.fecha)
+    item.fecha = datos.get("fecha", item.fecha)
     item.fecha_dt = parse_fecha(item.fecha)
-    hora_in = request.POST.get("hora", item.hora)
+    hora_in = datos.get("hora", item.hora)
     t = parse_hora(hora_in)
     item.hora = t.strftime("%H:%M") if t else hora_in
-    item.observaciones = request.POST.get("observaciones", item.observaciones).strip()
+    item.observaciones = datos.get("observaciones", item.observaciones).strip()
 
 
 @login_required
@@ -544,16 +683,24 @@ def ajustar_item(request, pk):
     negocio = get_negocio(request.user)
     item = get_object_or_404(Conciliacion, pk=pk, negocio=negocio)
     if request.method == "POST":
-        r = request.POST.get("r", "").strip()
-        sort = request.POST.get("sort", "").strip()
-        _aplicar_campos_post(item, request)
+        r = datos_post(request).get("r", "").strip()
+        sort = datos_post(request).get("sort", "").strip()
+        _aplicar_campos_post(item, datos_post(request))
         item.save()
         messages.success(request, "Datos ajustados. Pulsa «Reprocesar» para volver a buscar.")
         return _volver_detalle(item.lote_id, r, sort)
-    return render(request, "conciliaciones/ajustar.html",
-                  {"item": item, "tipos": Conciliacion.TIPOS,
-                   "filtro_r": request.GET.get("r", "").strip(),
-                   "sort": request.GET.get("sort", "").strip()})
+    return inertia_render(
+        request,
+        "Conciliaciones/Ajustar",
+        props={
+            "item": {**serializar_item(item), "tipoValor": item.tipo},
+            "tipos": [{"valor": v, "etiqueta": e} for v, e in Conciliacion.TIPOS],
+            "filtros": {
+                "r": request.GET.get("r", "").strip(),
+                "sort": request.GET.get("sort", "").strip(),
+            },
+        },
+    )
 
 
 @login_required
@@ -568,13 +715,13 @@ def agregar_confirmar(request, pk):
 
     negocio = get_negocio(request.user)
     item = get_object_or_404(Conciliacion, pk=pk, negocio=negocio)
-    r = request.POST.get("r", "").strip()
-    sort = request.POST.get("sort", "").strip()
+    r = datos_post(request).get("r", "").strip()
+    sort = datos_post(request).get("sort", "").strip()
     if request.method != "POST":
         return _volver_detalle(item.lote_id, r, sort)
 
     # Aplicar las correcciones del formulario y guardarlas en el ítem.
-    _aplicar_campos_post(item, request)
+    _aplicar_campos_post(item, datos_post(request))
 
     # Duplicado por referencia: si ya existe un original con esa ref, marcarlo como tal
     # para no romper la restricción única (negocio, ref).
@@ -617,8 +764,8 @@ def eliminar_item(request, pk):
     negocio = get_negocio(request.user)
     item = get_object_or_404(Conciliacion, pk=pk, negocio=negocio)
     lote = item.lote
-    r = request.POST.get("r", "").strip()
-    sort = request.POST.get("sort", "").strip()
+    r = datos_post(request).get("r", "").strip()
+    sort = datos_post(request).get("sort", "").strip()
     if request.method == "POST":
         item.delete()  # dispara la señal que borra la imagen del disco
         lote.total = lote.items.count()
@@ -641,7 +788,7 @@ def eliminar_items_masivo(request):
     if not negocio or request.method != "POST":
         return redirect("conciliaciones:panel")
 
-    ids = [i for i in request.POST.getlist("seleccion") if i.isdigit()]
+    ids = [i for i in datos_post(request).getlist("seleccion") if i.isdigit()]
     items = Conciliacion.objects.filter(negocio=negocio, id__in=ids)
     lote_ids = list(items.values_list("lote_id", flat=True).distinct())
     n = items.count()
@@ -658,16 +805,16 @@ def eliminar_items_masivo(request):
     else:
         messages.info(request, "No se seleccionó ningún registro.")
 
-    r = request.POST.get("r", "").strip()
-    sort = request.POST.get("sort", "").strip()
-    volver_lote = request.POST.get("volver_lote", "").strip()
+    r = datos_post(request).get("r", "").strip()
+    sort = datos_post(request).get("sort", "").strip()
+    volver_lote = datos_post(request).get("volver_lote", "").strip()
     if volver_lote.isdigit():
         return _volver_detalle(int(volver_lote), r, sort)
 
     # Volver al panel global preservando los filtros activos.
     params = []
     for key in ("r", "desde", "hasta", "tam", "sort", "page"):
-        val = request.POST.get(key, "").strip()
+        val = datos_post(request).get(key, "").strip()
         if val:
             params.append(f"{key}={val}")
     url = reverse("conciliaciones:panel")
@@ -681,10 +828,10 @@ def guardar_observacion(request, pk):
     """Guarda (o borra, si llega vacía) la observación de un ítem de conciliación."""
     negocio = get_negocio(request.user)
     item = get_object_or_404(Conciliacion, pk=pk, negocio=negocio)
-    r = request.POST.get("r", "").strip()
-    sort = request.POST.get("sort", "").strip()
+    r = datos_post(request).get("r", "").strip()
+    sort = datos_post(request).get("sort", "").strip()
     if request.method == "POST":
-        item.observaciones = request.POST.get("observaciones", "").strip()
+        item.observaciones = datos_post(request).get("observaciones", "").strip()
         item.save(update_fields=["observaciones"])
         messages.success(request, "Observación guardada." if item.observaciones else "Observación eliminada.")
     return _volver_detalle(item.lote_id, r, sort)
@@ -695,8 +842,8 @@ def reprocesar_item(request, pk):
     """Vuelve a buscar el comprobante con los datos actuales del ítem (sin IA)."""
     negocio = get_negocio(request.user)
     item = get_object_or_404(Conciliacion, pk=pk, negocio=negocio)
-    r = request.POST.get("r", "").strip()
-    sort = request.POST.get("sort", "").strip()
+    r = datos_post(request).get("r", "").strip()
+    sort = datos_post(request).get("sort", "").strip()
     if request.method == "POST":
         resultado = emparejar_item(item, item.lote)
         _recontar_lote(item.lote)
@@ -723,5 +870,5 @@ def confirmar_pendiente(request, pk):
             ok=item.lote.ok + 1, pendientes=max(item.lote.pendientes - 1, 0)
         )
         messages.success(request, "Comprobante confirmado y asignado a la ruta.")
-    return _volver_detalle(item.lote_id, request.POST.get("r", "").strip(),
-                           request.POST.get("sort", "").strip())
+    return _volver_detalle(item.lote_id, datos_post(request).get("r", "").strip(),
+                           datos_post(request).get("sort", "").strip())

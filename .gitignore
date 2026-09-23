@@ -25,5 +25,6 @@ staticfiles/
 # Temporales de trabajo
 scratch/
 
-# Node / build de CSS
+# Node / build del frontend (lo compila Vite: `npm run build`)
 node_modules/
+static/dist/

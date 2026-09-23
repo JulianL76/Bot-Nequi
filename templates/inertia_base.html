@@ -1,0 +1,39 @@
+{% load static django_vite %}<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Gestor Nequi</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Nequi">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="{% static 'icons/icon-192.png' %}">
+  <link rel="icon" href="{% static 'icons/icon-192.png' %}">
+
+  {% comment %}
+    El tema se aplica antes del primer pintado, fuera de React: si esperara al
+    montaje del árbol, la página aparecería en claro y saltaría a oscuro.
+  {% endcomment %}
+  <script>
+    (function () {
+      var oscuro = localStorage.theme === 'dark' ||
+        (!('theme' in localStorage) && matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.classList.toggle('dark', oscuro);
+      document.querySelector('meta[name=theme-color]').content = oscuro ? '#10131d' : '#ffffff';
+    })();
+  </script>
+
+  <!-- Aplicación React empaquetada con Vite -->
+  {% vite_hmr_client %}
+  {% vite_react_refresh %}
+  {% vite_asset 'app.jsx' %}
+</head>
+
+<body class="h-full">
+  {% block inertia %}{% endblock %}
+</body>
+</html>

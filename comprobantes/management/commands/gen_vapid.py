@@ -40,11 +40,11 @@ class Command(BaseCommand):
         def b64(datos: bytes) -> str:
             return base64.urlsafe_b64encode(datos).decode().rstrip("=")
 
-        self.stdout.write(self.style.SUCCESS("Llaves VAPID generadas. Copialas al .env:\n"))
+        self.stdout.write(self.style.SUCCESS("Llaves VAPID generadas. Cópialas al .env:\n"))
         self.stdout.write(f"VAPID_PUBLIC_KEY={b64(pub_raw)}")
         self.stdout.write(f"VAPID_PRIVATE_KEY={b64(priv_der)}")
         self.stdout.write("VAPID_ADMIN_EMAIL=tu-correo@ejemplo.com")
         self.stdout.write(self.style.WARNING(
-            "\nGuardalas bien: si las cambiás, todos los usuarios tienen que "
+            "\nGuárdalas bien: si las cambias, todos los usuarios tienen que "
             "volver a aceptar las notificaciones."
         ))

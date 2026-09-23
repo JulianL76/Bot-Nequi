@@ -1,0 +1,158 @@
+/* ============================================================================
+   DESIGN TOKENS — Gestor Nequi
+   Identidad nueva: cobalto como color de marca (confianza/financiero), neutros
+   "ink" levemente fríos para que las tablas densas no cansen la vista, y ámbar
+   como acento. Los semánticos (éxito/alerta/error) quedan libres de la marca,
+   algo que el violeta anterior no permitía sin ambigüedad.
+
+   Todo color de la app sale de aquí. No se escriben hex sueltos en plantillas.
+   ========================================================================== */
+
+/* Modo oscuro por clase .dark (lo escribe el script anti-parpadeo del <head>). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* ---- Marca: cobalto ---------------------------------------------------- */
+  --color-brand-50:  #eff3ff;
+  --color-brand-100: #dde5ff;
+  --color-brand-200: #c2d0ff;
+  --color-brand-300: #9bb2ff;
+  --color-brand-400: #7189ff;
+  --color-brand-500: #4f63f5;
+  --color-brand-600: #3b45e0;
+  --color-brand-700: #3236bd;
+  --color-brand-800: #2c3099;
+  --color-brand-900: #2a2f79;
+  --color-brand-950: #1b1d46;
+
+  /* ---- Neutros: ink ------------------------------------------------------ */
+  --color-ink-50:  #f6f7f9;
+  --color-ink-100: #eceef2;
+  --color-ink-200: #dde0e7;
+  --color-ink-300: #c3c8d3;
+  --color-ink-400: #949bad;
+  --color-ink-500: #6b7288;
+  --color-ink-600: #525872;
+  --color-ink-700: #40465c;
+  --color-ink-800: #2a2f40;
+  --color-ink-900: #1a1e2c;
+  --color-ink-950: #10131d;
+
+  /* ---- Acento: ámbar (destacados, CTA secundario, series de gráficas) ----- */
+  --color-accent-300: #fcd34d;
+  --color-accent-400: #fbbf24;
+  --color-accent-500: #f59e0b;
+  --color-accent-600: #d97706;
+
+  /* ---- Semánticos -------------------------------------------------------- */
+  --color-ok-100:  #d1fae5;
+  --color-ok-400:  #34d399;
+  --color-ok-500:  #10b981;
+  --color-ok-600:  #059669;
+  --color-warn-100: #fef3c7;
+  --color-warn-400: #fbbf24;
+  --color-warn-500: #f59e0b;
+  --color-warn-600: #d97706;
+  --color-bad-100: #fee2e2;
+  --color-bad-400: #f87171;
+  --color-bad-500: #ef4444;
+  --color-bad-600: #dc2626;
+
+  /* ---- Tipografía -------------------------------------------------------- */
+  --font-display: "Plus Jakarta Sans Variable", "Inter Variable", system-ui, sans-serif;
+  --font-sans:    "Inter Variable", system-ui, -apple-system, sans-serif;
+  --font-mono:    "JetBrains Mono Variable", ui-monospace, monospace;
+
+  /* ---- Densidad ----------------------------------------------------------
+     La densidad se aplica al CONTENIDO —tablas, listas, formularios—, donde se
+     miran cientos de filas al día y ver más en pantalla vale más que el aire.
+
+     La NAVEGACIÓN no sigue esa regla: son pocos elementos, se tocan con el
+     dedo y apretarlos no gana nada. Por eso tiene su propia escala, más
+     holgada, y se ajusta sin tocar la del contenido. */
+  --h-control:    2rem;      /* botones, inputs y selects del contenido */
+  --h-control-sm: 1.75rem;
+  --h-control-lg: 2.25rem;
+
+  --h-topbar:     3.25rem;
+  --w-sidebar:    15rem;
+  --h-nav-item:   2.25rem;   /* alto de cada ítem del menú */
+
+  /* ---- Radios ------------------------------------------------------------
+     Concéntricos: el radio exterior es el interior más el padding, para que
+     los elementos anidados no se vean desalineados en las esquinas. */
+  --radius-card:  0.625rem;
+  --radius-field: 0.375rem;
+  --radius-pill:  9999px;
+
+  /* ---- Capas -------------------------------------------------------------
+     Escala fija de z-index. Sin esto acaban apareciendo z-[85] sueltos que
+     nadie sabe con qué compiten. */
+  --z-sticky:  20;   /* cabeceras de tabla */
+  --z-header:  30;   /* topbar */
+  --z-bar:     40;   /* barra inferior, barra de acciones */
+  --z-sheet:   50;   /* hoja móvil */
+  --z-modal:   60;   /* diálogos */
+  --z-viewer:  70;   /* visor de imagen */
+  --z-toast:   80;   /* toasts: siempre encima */
+  --z-progress: 90;  /* barra de progreso de navegación */
+
+  /* ---- Movimiento -------------------------------------------------------- */
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);    /* entradas */
+  --ease-in-quick: cubic-bezier(0.4, 0, 1, 1);        /* salidas: más cortas */
+  --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1); /* rebote medido */
+  --t-fast:   120ms;   /* feedback de alta frecuencia: hover, color */
+  --t-normal: 180ms;   /* entradas de componentes */
+}
+
+/* ============================================================================
+   Tokens semánticos de superficie. Se redefinen en .dark y las utilidades
+   (bg-surface, border-line, text-muted...) cambian solas: las plantillas nunca
+   repiten pares "bg-white dark:bg-slate-800".
+   ========================================================================== */
+:root {
+  --surface:         #ffffff;   /* tarjetas, barras */
+  --surface-sunken:  #f2f4f8;   /* fondo de la app */
+  --surface-raised:  #ffffff;   /* popovers, hojas */
+  --surface-inset:   #f6f7f9;   /* celdas, inputs, zebra */
+  --surface-hover:   #eceef2;
+  --line:            #e3e6ed;   /* borde sutil */
+  --line-strong:     #c3c8d3;
+  --content:         #1a1e2c;   /* texto principal */
+  --content-muted:   #525872;   /* secundario */
+  --content-subtle:  #949bad;   /* terciario / placeholders */
+  --shell:           #10131d;   /* sidebar oscuro permanente */
+  --shell-content:   #c3c8d3;
+}
+
+.dark {
+  --surface:         #1a1e2c;
+  --surface-sunken:  #10131d;
+  --surface-raised:  #2a2f40;
+  --surface-inset:   #222736;
+  --surface-hover:   #2a2f40;
+  --line:            #2f3547;
+  --line-strong:     #40465c;
+  --content:         #eceef2;
+  --content-muted:   #a8aec0;
+  --content-subtle:  #6b7288;
+  --shell:           #0b0e16;
+  --shell-content:   #949bad;
+}
+
+/* `inline` → las utilidades resuelven la variable en el punto de uso, por eso
+   respetan el cambio de .dark sin duplicar clases. */
+@theme inline {
+  --color-surface:        var(--surface);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-inset:  var(--surface-inset);
+  --color-surface-hover:  var(--surface-hover);
+  --color-line:           var(--line);
+  --color-line-strong:    var(--line-strong);
+  --color-content:        var(--content);
+  --color-muted:          var(--content-muted);
+  --color-subtle:         var(--content-subtle);
+  --color-shell:          var(--shell);
+  --color-shell-content:  var(--shell-content);
+}

@@ -61,6 +61,10 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    # Frontend compilado con Vite
+    'django_vite',
+    # Puente Django <-> React (las vistas devuelven props, no HTML)
+    'inertia',
     # Apps del proyecto
     'accounts',
     'comprobantes',
@@ -77,6 +81,9 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
+    # Debe ir después de Auth y Messages: comparte usuario y avisos con React.
+    'inertia.middleware.InertiaMiddleware',
+    'webapp.inertia_shared.InertiaSharedMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
@@ -92,7 +99,6 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
-                'comprobantes.context_processors.notificaciones_no_leidas',
             ],
         },
     },
@@ -160,6 +166,24 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [BASE_DIR / 'static']
+
+# ---------------------------------------------------------------------------
+# Frontend (Vite)
+# ---------------------------------------------------------------------------
+# dev  : `npm run dev` sirve los assets desde localhost:5173 con HMR.
+# prod : `npm run build` escribe static/dist/ + manifest.json y django-vite
+#        resuelve los nombres con hash desde ahí.
+DJANGO_VITE = {
+    'default': {
+        'dev_mode': os.getenv('DJANGO_VITE_DEV', str(DEBUG)) == 'True',
+        'dev_server_port': 5173,
+        'static_url_prefix': 'dist',
+        'manifest_path': BASE_DIR / 'static' / 'dist' / 'manifest.json',
+    }
+}
+
+# Inertia: plantilla raíz que monta la app de React y entrega las props.
+INERTIA_LAYOUT = 'inertia_base.html'
 
 # Archivos subidos por el usuario (imágenes de comprobantes)
 MEDIA_URL = 'media/'
@@ -232,6 +256,7 @@ LOGGING = {
 # Autenticación
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'dashboard:home'
+# Tras cerrar sesión se vuelve al login, no a la página de Django.
 LOGOUT_REDIRECT_URL = 'login'
 
 

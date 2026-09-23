@@ -3,6 +3,10 @@ from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from inertia import render as inertia_render
+
+from core.peticiones import datos_post
 from django.views.decorators.http import require_POST
 
 from accounts.utils import get_negocio
@@ -16,7 +20,7 @@ from .models import ArchivoPendiente, Comprobante, LoteCarga, Notificacion, Ruta
 from .tasks import procesar_lote, reprocesar_lote
 
 # Tamaños de página permitidos en la lista de comprobantes.
-TAM_PAGINA = {"20", "50", "100", "200"}
+TAM_PAGINA = {"200", "500", "1000"}
 
 
 def _recontar_lote_carga(lote):
@@ -189,20 +193,40 @@ def subir(request):
         return redirect("comprobantes:lote_detalle", lote_id=lote.id)
 
     lote = _borrador(negocio, request.user)
-    return render(request, "comprobantes/subir.html", {
-        "negocio": negocio,
-        "guardadas": lote.archivos.count() if lote else 0,
-    })
+    return inertia_render(
+        request,
+        "Comprobantes/Subir",
+        props={
+            "guardadas": lote.archivos.count() if lote else 0,
+            "urlsPagina": {
+                "subirArchivo": reverse("comprobantes:subir_archivo"),
+                "descartar": reverse("comprobantes:descartar_borrador"),
+            },
+        },
+    )
 
 
 @login_required
 def lote_detalle(request, lote_id):
     negocio = get_negocio(request.user)
     lote = get_object_or_404(LoteCarga, pk=lote_id, negocio=negocio)
-    return render(request, "comprobantes/lote_detalle.html", {
-        "lote": lote, "comprobantes": lote.comprobantes.all(),
-        "fallidos": lote.archivos.filter(fallido=True).order_by("id"),
-    })
+    return inertia_render(
+        request,
+        "Comprobantes/LoteDetalle",
+        props={
+            "lote": serializar_lote(lote),
+            "fallidos": [
+                {
+                    "id": a.pk,
+                    "nombre": a.imagen.name.rsplit("/", 1)[-1] if a.imagen else "(sin nombre)",
+                    "imagen": a.imagen.url if a.imagen else None,
+                    "error": a.error or "Error desconocido.",
+                }
+                for a in lote.archivos.filter(fallido=True).order_by("id")
+            ],
+            "urlsPagina": {"progreso": reverse("comprobantes:lote_progreso", args=[lote.pk])},
+        },
+    )
 
 
 @login_required
@@ -322,6 +346,16 @@ def _filtrar_comprobantes(request, negocio):
     if hora:
         qs = qs.filter(hora=hora)
 
+    # Filtro por lote/subida (los comprobantes creados en esa misma subida).
+    lote = request.GET.get("lote", "").strip()
+    lote_obj = None
+    if lote.isdigit():
+        qs = qs.filter(lote_id=lote)
+        lote_obj = LoteCarga.objects.filter(pk=lote, negocio=negocio).first()
+
+    # Hasta aquí solo se aplicó el ALCANCE: este es el universo de referencia.
+    qs_alcance = qs
+
     # Filtro por duplicados: "1" = solo duplicados, "0" = solo originales.
     dup = request.GET.get("dup", "").strip()
     if dup == "1":
@@ -334,16 +368,63 @@ def _filtrar_comprobantes(request, negocio):
     if estado in (Comprobante.CONFIRMADO, Comprobante.SIN_CONFIRMAR):
         qs = qs.filter(estado=estado)
 
-    # Filtro por lote/subida (los comprobantes creados en esa misma subida).
-    lote = request.GET.get("lote", "").strip()
-    lote_obj = None
-    if lote.isdigit():
-        qs = qs.filter(lote_id=lote)
-        lote_obj = LoteCarga.objects.filter(pk=lote, negocio=negocio).first()
-
     ctx = {"q": q, "dia": dia, "dia_obj": dia_obj, "hora": hora,
-           "dup": dup, "estado": estado, "lote": lote, "lote_obj": lote_obj}
+           "dup": dup, "estado": estado, "lote": lote, "lote_obj": lote_obj,
+           "qs_alcance": qs_alcance}
     return qs, ctx
+
+
+def serializar_lote(l):
+    """Forma en la que un lote de subida viaja al front."""
+    return {
+        "id": l.pk,
+        "estado": l.estado,
+        "estadoTexto": l.get_estado_display(),
+        "terminado": l.terminado,
+        "total": l.total,
+        "procesadas": l.procesadas,
+        "exitosas": l.exitosas,
+        "fallidas": l.fallidas,
+        "duplicadas": l.duplicadas,
+        "progreso": l.progreso_pct,
+        "creadoEn": l.creado_en.isoformat(),
+    }
+
+
+def serializar_comprobante(c):
+    """Forma en la que un comprobante viaja al front.
+
+    Una sola definición para la lista y el detalle: si el front espera
+    `esDuplicado`, no puede llegar `es_duplicado` desde una vista y no desde
+    otra. Los Decimal se convierten aquí porque JSON no los lleva.
+    """
+    conc = getattr(c, "conciliacion", None)
+    return {
+        "id": c.pk,
+        "de": c.de,
+        "valor": float(c.valor),
+        "ref": c.ref,
+        "fecha": c.fecha,
+        "hora": c.hora,
+        "origen": c.get_origen_display(),
+        "estado": c.estado,
+        "esDuplicado": c.es_duplicado,
+        "nDups": getattr(c, "n_dups", 0),
+        "imagen": c.imagen.url if c.imagen else None,
+        "rutaId": c.ruta_id,
+        "confirmadoEn": c.confirmado_en.isoformat() if c.confirmado_en else None,
+        "confirmadoPor": c.confirmado_por.get_username() if c.confirmado_por_id else None,
+        "confirmadoVia": c.get_confirmado_via_display() if c.confirmado_via else None,
+        "conciliacion": (
+            {
+                "itemId": conc.pk,
+                "loteId": conc.lote_id,
+                "ruta": conc.lote.ruta.numero if conc.lote and conc.lote.ruta_id else None,
+            }
+            if conc
+            else None
+        ),
+    }
 
 
 # Campos por los que se puede ordenar la tabla (nombre → expresión de orden).
@@ -360,8 +441,16 @@ def lista(request):
     # Totales de TODO lo filtrado (no solo la página actual).
     resumen = qs.aggregate(n=Count("id"), total=Sum("valor"))
 
-    n_duplicados = (Comprobante.objects.filter(negocio=negocio, es_duplicado=True).count()
-                    if negocio else 0)
+    # Desglose sobre el ALCANCE, no sobre lo ya filtrado: así los contadores de
+    # los chips no cambian al pulsarlos y sirven de referencia.
+    alcance = ctx["qs_alcance"]
+    desglose = alcance.aggregate(
+        duplicados=Count("id", filter=Q(es_duplicado=True)),
+        originales=Count("id", filter=Q(es_duplicado=False)),
+        confirmados=Count("id", filter=Q(estado=Comprobante.CONFIRMADO)),
+        pendientes=Count("id", filter=Q(estado=Comprobante.SIN_CONFIRMAR)),
+        alcance=Count("id"),
+    )
 
     # Anotar nº de duplicados SOLO en la página (no en el qs del agregado, para
     # no alterar la suma con el GROUP BY).
@@ -387,7 +476,7 @@ def lista(request):
 
     tam = request.GET.get("tam", "").strip()
     if tam not in TAM_PAGINA:
-        tam = "20"
+        tam = "200"
     paginator = Paginator(pagina_qs, int(tam))
     page = paginator.get_page(request.GET.get("page"))
 
@@ -408,9 +497,39 @@ def lista(request):
             c.conciliacion = None
 
     rutas = Ruta.objects.filter(negocio=negocio, activa=True) if negocio else Ruta.objects.none()
-    return render(request, "comprobantes/lista.html",
-                  {"page": page, "rutas": rutas, "n_duplicados": n_duplicados, "sort": sort, "tam": tam,
-                   "total_count": resumen["n"], "total_valor": resumen["total"] or 0, **ctx})
+
+    return inertia_render(
+        request,
+        "Comprobantes/Lista",
+        props={
+            "filas": [serializar_comprobante(c) for c in page.object_list],
+            "paginacion": {
+                "pagina": page.number,
+                "paginas": page.paginator.num_pages,
+                "tam": int(tam),
+                "total": page.paginator.count,
+            },
+            "resumen": {
+                "n": resumen["n"] or 0,
+                "total": float(resumen["total"] or 0),
+            },
+            # Conteos del alcance: alimentan los chips sin bailar al filtrar.
+            "desglose": desglose,
+            "filtros": {
+                "q": ctx["q"],
+                "dia": ctx["dia"],
+                "hora": ctx["hora"],
+                "dup": ctx["dup"],
+                "estado": ctx["estado"],
+                "lote": ctx["lote"],
+                "sort": sort,
+            },
+            "lote": (
+                {"id": ctx["lote_obj"].pk} if ctx["lote_obj"] else None
+            ),
+            "rutas": [{"id": r.pk, "numero": r.numero, "nombre": r.nombre} for r in rutas],
+        },
+    )
 
 
 @login_required
@@ -548,7 +667,7 @@ def importar_excel(request):
         )
         return redirect("comprobantes:lista")
 
-    return render(request, "comprobantes/importar.html", {"negocio": negocio})
+    return inertia_render(request, "Comprobantes/Importar")
 
 
 @login_required
@@ -558,19 +677,20 @@ def acciones_lote(request):
     if request.method != "POST":
         return redirect("comprobantes:lista")
 
-    ids = request.POST.getlist("seleccion")
+    datos = datos_post(request)          # formulario o JSON (Inertia)
+    ids = datos.getlist("seleccion")
     qs = Comprobante.objects.filter(negocio=negocio, pk__in=ids)
     if not ids:
         messages.error(request, "Selecciona al menos un comprobante.")
         return redirect("comprobantes:lista")
 
-    accion = request.POST.get("accion")
+    accion = datos.get("accion")
 
     if accion == "confirmar":
         # Si hay una ruta elegida en la barra, se asigna a todos los seleccionados
         # (igual que "Asignar") antes de confirmar. Sin ruta, solo confirma.
         from django.utils import timezone
-        ruta_id = request.POST.get("ruta")
+        ruta_id = datos.get("ruta")
         ruta = Ruta.objects.filter(negocio=negocio, pk=ruta_id).first() if ruta_id else None
         if ruta_id and not ruta:
             messages.error(request, "Elige una ruta válida.")
@@ -599,7 +719,7 @@ def acciones_lote(request):
         messages.success(request, f"{n} comprobante(s) marcado(s) como sin confirmar.")
 
     elif accion == "asignar_ruta":
-        ruta = Ruta.objects.filter(negocio=negocio, pk=request.POST.get("ruta")).first()
+        ruta = Ruta.objects.filter(negocio=negocio, pk=datos.get("ruta")).first()
         if not ruta:
             messages.error(request, "Elige una ruta válida.")
         else:
@@ -639,27 +759,28 @@ def editar(request, pk):
     if request.method == "POST":
         from core.parsing import limpiar_monto
 
-        valor_in = request.POST.get("valor", "")
-        comp.de = request.POST.get("de", comp.de)
+        datos = datos_post(request)      # formulario o JSON (Inertia)
+        valor_in = datos.get("valor", "")
+        comp.de = datos.get("de", comp.de)
         comp.valor = limpiar_monto(valor_in) or 0
         comp.valor_raw = valor_in
-        comp.ref = request.POST.get("ref", comp.ref)
-        comp.fecha = request.POST.get("fecha", comp.fecha)
-        comp.hora = request.POST.get("hora", comp.hora)
+        comp.ref = datos.get("ref", comp.ref)
+        comp.fecha = datos.get("fecha", comp.fecha)
+        comp.hora = datos.get("hora", comp.hora)
 
-        ruta_id = request.POST.get("ruta", "")
+        ruta_id = datos.get("ruta", "")
         if ruta_id:
             ruta = rutas.filter(pk=ruta_id).first()
             if not ruta:
                 messages.error(request, "Elige una ruta válida.")
-                return render(request, "comprobantes/editar.html", {"comp": comp, "rutas": rutas})
+                return redirect("comprobantes:editar", pk=comp.pk)
             comp.ruta = ruta
         else:
             comp.ruta = None
 
         # El estado solo cambia si el usuario lo mueve: confirmar registra la
         # trazabilidad de edición; desconfirmar la limpia. Si no cambia, se conserva.
-        quiere_confirmado = request.POST.get("confirmado") == "1"
+        quiere_confirmado = datos.get("confirmado") in ("1", "True", "true")
         if quiere_confirmado and comp.estado != Comprobante.CONFIRMADO:
             comp.marcar_confirmado(Comprobante.VIA_EDICION, request.user)
         elif not quiere_confirmado and comp.estado == Comprobante.CONFIRMADO:
@@ -668,7 +789,40 @@ def editar(request, pk):
         comp.save()
         messages.success(request, "Comprobante actualizado.")
         return redirect("comprobantes:lista")
-    return render(request, "comprobantes/editar.html", {"comp": comp, "rutas": rutas})
+    return inertia_render(
+        request,
+        "Comprobantes/Editar",
+        props={
+            "comprobante": {
+                **serializar_comprobante(comp),
+                "valorRaw": comp.valor_raw,
+                "fuenteIa": comp.fuente_ia,
+                "loteId": comp.lote_id,
+                "creadoPor": (
+                    comp.creado_por.get_full_name() or comp.creado_por.get_username()
+                    if comp.creado_por_id else None
+                ),
+                "creadoEn": comp.creado_en.isoformat(),
+                "duplicadoDeId": comp.duplicado_de_id,
+                "conciliacion": (
+                    {
+                        "itemId": comp.confirmado_conciliacion.pk,
+                        "loteId": comp.confirmado_conciliacion.lote_id,
+                        "ruta": (
+                            comp.confirmado_conciliacion.lote.ruta.numero
+                            if comp.confirmado_conciliacion.lote
+                            and comp.confirmado_conciliacion.lote.ruta_id else None
+                        ),
+                    }
+                    if comp.confirmado_conciliacion_id else None
+                ),
+            },
+            "rutas": [
+                {"id": r.pk, "numero": r.numero, "nombre": r.nombre, "activa": r.activa}
+                for r in rutas
+            ],
+        },
+    )
 
 
 @login_required
@@ -749,13 +903,34 @@ def push_probar(request):
 def notificaciones(request):
     from django.conf import settings
 
-    notifs = Notificacion.objects.filter(usuario=request.user)[:50]
+    notifs = list(Notificacion.objects.filter(usuario=request.user)[:50])
+    # Se marcan leídas DESPUÉS de leerlas: si no, la pantalla llegaría sin
+    # ninguna resaltada y el usuario no vería qué es lo nuevo.
     Notificacion.objects.filter(usuario=request.user, leida=False).update(leida=True)
-    return render(request, "comprobantes/notificaciones.html", {
-        "notifs": notifs,
-        # Si no hay llaves VAPID, la plantilla no muestra la caja de push.
-        "vapid_public_key": getattr(settings, "VAPID_PUBLIC_KEY", ""),
-    })
+
+    return inertia_render(
+        request,
+        "Comprobantes/Notificaciones",
+        props={
+            "notificaciones": [
+                {
+                    "id": n.pk,
+                    "titulo": n.titulo,
+                    "mensaje": n.mensaje,
+                    "leida": n.leida,
+                    "creadoEn": n.creado_en.isoformat(),
+                }
+                for n in notifs
+            ],
+            # Sin llaves VAPID el front no muestra la caja de activación.
+            "vapidPublicKey": getattr(settings, "VAPID_PUBLIC_KEY", ""),
+            "urlsPagina": {
+                "suscribir": reverse("comprobantes:push_suscribir"),
+                "desuscribir": reverse("comprobantes:push_desuscribir"),
+                "probar": reverse("comprobantes:push_probar"),
+            },
+        },
+    )
 
 
 @login_required
@@ -766,7 +941,14 @@ def lotes(request):
           if negocio else LoteCarga.objects.none())
     paginator = Paginator(qs, 20)
     page = paginator.get_page(request.GET.get("page"))
-    return render(request, "comprobantes/lotes.html", {"page": page})
+    return inertia_render(
+        request,
+        "Comprobantes/Lotes",
+        props={
+            "lotes": [serializar_lote(l) for l in page.object_list],
+            "paginacion": {"pagina": page.number, "paginas": page.paginator.num_pages},
+        },
+    )
 
 
 @login_required
@@ -780,7 +962,16 @@ def en_proceso(request):
         if negocio
         else LoteCarga.objects.none()
     )
-    return render(request, "comprobantes/en_proceso.html", {"lotes": lotes_activos})
+    return inertia_render(
+        request,
+        "Comprobantes/EnProceso",
+        props={
+            "lotes": [
+                {**serializar_lote(l), "urlProgreso": reverse("comprobantes:lote_progreso", args=[l.pk])}
+                for l in lotes_activos
+            ]
+        },
+    )
 
 
 @login_required
@@ -821,8 +1012,9 @@ def rutas(request):
         return redirect("dashboard:home")
 
     if request.method == "POST":
-        numero = request.POST.get("numero", "").strip()
-        nombre = request.POST.get("nombre", "").strip()
+        datos = datos_post(request)      # formulario o JSON (Inertia)
+        numero = (datos.get("numero") or "").strip()
+        nombre = (datos.get("nombre") or "").strip()
         if not numero.isdigit():
             messages.error(request, "El número de ruta debe ser un entero.")
         elif Ruta.objects.filter(negocio=negocio, numero=numero).exists():
@@ -834,7 +1026,22 @@ def rutas(request):
 
     lista_rutas = (Ruta.objects.filter(negocio=negocio)
                    .annotate(n_comprobantes=Count("comprobantes")))
-    return render(request, "comprobantes/rutas.html", {"rutas": lista_rutas})
+    return inertia_render(
+        request,
+        "Comprobantes/Rutas",
+        props={
+            "rutas": [
+                {
+                    "id": r.pk,
+                    "numero": r.numero,
+                    "nombre": r.nombre,
+                    "activa": r.activa,
+                    "nComprobantes": r.n_comprobantes,
+                }
+                for r in lista_rutas
+            ]
+        },
+    )
 
 
 @login_required

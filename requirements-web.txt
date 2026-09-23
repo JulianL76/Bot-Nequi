@@ -7,6 +7,8 @@
 # --- Web / admin ---
 Django>=5.2
 django-unfold
+inertia-django         # las vistas devuelven props a React en vez de HTML
+django-vite            # enlaza el bundle de Vite (static/dist) desde las plantillas
 Pillow                 # manejo básico de imágenes que sube el usuario
 openpyxl               # importar / exportar Excel
 
