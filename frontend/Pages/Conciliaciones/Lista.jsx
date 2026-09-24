@@ -1,15 +1,15 @@
 import { useState } from 'react';
 import { Link, router, usePage } from '@inertiajs/react';
 import {
-  ArrowLeftRight, ChartColumn, ChevronLeft, ChevronRight, Eye, ListChecks,
-  MessageSquareText, Route, Trash2,
+  ArrowLeftRight, CalendarDays, ChartColumn, ChevronLeft, ChevronRight, Eye, List,
+  ListChecks, MessageSquareText, Route, Trash2,
 } from 'lucide-react';
 
 import { Cabecera } from '../../Layout.jsx';
 import { BarraAcciones } from '../../components/BarraAcciones.jsx';
 import { Badge, Button, Card, Checkbox, EmptyState } from '../../ui/index.jsx';
 import { ConfirmDialog } from '../../ui/Dialog.jsx';
-import { fechaHora, numero, plural } from '../../lib/formato.js';
+import { claveDia, diaLargo, fechaHora, numero, plural, soloHora } from '../../lib/formato.js';
 
 function BadgeEstadoConc({ lote }) {
   const tonos = {
@@ -49,15 +49,113 @@ function Resultados({ lote }) {
   );
 }
 
+/** Una conciliación del historial. `soloLaHora` cuando el día ya lo dice el
+ *  encabezado del grupo: repetirlo en cada fila es ruido. */
+function TarjetaLote({ lote: l, seleccion, setSeleccion, soloLaHora = false }) {
+  return (
+    <Card className="card-pad">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <Checkbox
+          checked={!!seleccion[l.id]}
+          onCheckedChange={(v) => setSeleccion((p) => ({ ...p, [l.id]: !!v }))}
+          aria-label={`Seleccionar conciliación ${l.id}`}
+        />
+        <Link
+          href={`/conciliar/lote/${l.id}/`}
+          className="font-display font-bold transition-colors hover:text-brand-600 dark:hover:text-brand-400"
+        >
+          Conciliación #{l.id}
+        </Link>
+        <BadgeEstadoConc lote={l} />
+        {l.ruta != null && (
+          <span className="badge-ruta"><Route />Ruta {l.ruta}</span>
+        )}
+        {l.nObs > 0 && (
+          <Badge><MessageSquareText />{l.nObs}</Badge>
+        )}
+
+        <span className="nums ml-auto t-meta">
+          {soloLaHora ? soloHora(l.creadoEn) : fechaHora(l.creadoEn)}
+          {' · '}{numero(l.total)} {plural(l.total, 'imagen', 'imágenes')}
+        </span>
+      </div>
+
+      <Resultados lote={l} />
+
+      <div className="mt-2.5 flex items-center gap-1 border-t border-line pt-2.5">
+        <Button variant="ghost" size="sm" asChild>
+          <Link href={`/conciliar/lote/${l.id}/`}><Eye />Ver detalle</Link>
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+const CLAVE_AGRUPAR = 'conciliaciones:agrupar-por-fecha';
+
+/** La preferencia se guarda: quien concilia por días lo quiere siempre así. */
+function useAgruparPorFecha() {
+  const [agrupar, setAgrupar] = useState(() => {
+    try { return localStorage.getItem(CLAVE_AGRUPAR) === '1'; } catch { return false; }
+  });
+  const alternar = () => setAgrupar((v) => {
+    try { localStorage.setItem(CLAVE_AGRUPAR, v ? '0' : '1'); } catch { /* sin almacenamiento */ }
+    return !v;
+  });
+  return [agrupar, alternar];
+}
+
+/** Parte la lista en días conservando el orden que ya trae del servidor. */
+function porDia(lotes) {
+  const dias = [];
+  for (const l of lotes) {
+    const clave = claveDia(l.creadoEn);
+    const ultimo = dias[dias.length - 1];
+    if (ultimo && ultimo.clave === clave) ultimo.lotes.push(l);
+    else dias.push({ clave, iso: l.creadoEn, lotes: [l] });
+  }
+  return dias.map((d) => ({
+    ...d,
+    // Resumen del día: es lo que se compara contra el cuadre.
+    imagenes: d.lotes.reduce((n, l) => n + l.total, 0),
+    ok: d.lotes.reduce((n, l) => n + l.ok, 0),
+  }));
+}
+
+function EncabezadoDia({ dia }) {
+  return (
+    <div className="sticky top-[var(--h-topbar)] z-10 -mx-1 flex flex-wrap items-baseline gap-x-2 bg-surface-sunken/95 px-1 py-1.5 backdrop-blur">
+      <CalendarDays className="size-3.5 shrink-0 text-brand-600 dark:text-brand-400" />
+      <span className="t-seccion">{diaLargo(dia.iso)}</span>
+      <span className="nums t-meta">
+        {numero(dia.lotes.length)} {plural(dia.lotes.length, 'conciliación', 'conciliaciones')}
+        {' · '}{numero(dia.imagenes)} {plural(dia.imagenes, 'imagen', 'imágenes')}
+        {' · '}{numero(dia.ok)} OK
+      </span>
+    </div>
+  );
+}
+
 export default function Lista({ lotes, paginacion }) {
   const { urls } = usePage().props;
   const [seleccion, setSeleccion] = useState({});
   const [confirmar, setConfirmar] = useState(false);
   const ids = Object.keys(seleccion).filter((k) => seleccion[k]);
+  const [agrupar, alternarAgrupar] = useAgruparPorFecha();
 
   return (
     <>
       <Cabecera titulo="Historial de conciliaciones" subtitulo="Cada conciliación agrupa las imágenes de una ruta.">
+        <Button
+          size="sm"
+          variant={agrupar ? 'primary' : 'secondary'}
+          onClick={alternarAgrupar}
+          aria-pressed={agrupar}
+          title={agrupar ? 'Ver como lista continua' : 'Agrupar por fecha'}
+        >
+          {agrupar ? <List /> : <CalendarDays />}
+          <span className="hidden sm:inline">{agrupar ? 'Sin agrupar' : 'Por fecha'}</span>
+        </Button>
         <Button size="sm" asChild><Link href={urls.panel}><ChartColumn />Panel</Link></Button>
         <Button variant="primary" size="sm" asChild>
           <Link href={urls.conciliar}><ArrowLeftRight />Conciliar</Link>
@@ -77,44 +175,27 @@ export default function Lista({ lotes, paginacion }) {
           </EmptyState>
         </Card>
       ) : (
-        <div className="rise-lista space-y-2">
-          {lotes.map((l) => (
-            <Card key={l.id} className="card-pad">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                <Checkbox
-                  checked={!!seleccion[l.id]}
-                  onCheckedChange={(v) => setSeleccion((p) => ({ ...p, [l.id]: !!v }))}
-                  aria-label={`Seleccionar conciliación ${l.id}`}
-                />
-                <Link
-                  href={`/conciliar/lote/${l.id}/`}
-                  className="font-display font-bold transition-colors hover:text-brand-600 dark:hover:text-brand-400"
-                >
-                  Conciliación #{l.id}
-                </Link>
-                <BadgeEstadoConc lote={l} />
-                {l.ruta != null && (
-                  <span className="badge-ruta"><Route />Ruta {l.ruta}</span>
-                )}
-                {l.nObs > 0 && (
-                  <Badge><MessageSquareText />{l.nObs}</Badge>
-                )}
-
-                <span className="nums ml-auto t-meta">
-                  {fechaHora(l.creadoEn)} · {numero(l.total)} {plural(l.total, 'imagen', 'imágenes')}
-                </span>
-              </div>
-
-              <Resultados lote={l} />
-
-              <div className="mt-2.5 flex items-center gap-1 border-t border-line pt-2.5">
-                <Button variant="ghost" size="sm" asChild>
-                  <Link href={`/conciliar/lote/${l.id}/`}><Eye />Ver detalle</Link>
-                </Button>
-              </div>
-            </Card>
-          ))}
-        </div>
+        agrupar ? (
+          <div className="space-y-4">
+            {porDia(lotes).map((dia) => (
+              <section key={dia.clave}>
+                <EncabezadoDia dia={dia} />
+                <div className="rise-lista mt-1.5 space-y-2">
+                  {dia.lotes.map((l) => (
+                    <TarjetaLote key={l.id} lote={l} seleccion={seleccion}
+                                 setSeleccion={setSeleccion} soloLaHora />
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        ) : (
+          <div className="rise-lista space-y-2">
+            {lotes.map((l) => (
+              <TarjetaLote key={l.id} lote={l} seleccion={seleccion} setSeleccion={setSeleccion} />
+            ))}
+          </div>
+        )
       )}
 
       {paginacion.paginas > 1 && (

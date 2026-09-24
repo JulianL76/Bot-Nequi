@@ -24,6 +24,11 @@ from .tasks import _confirmado_a_mano, emparejar_item, procesar_conciliacion
 # arbitrario del usuario directo a int() para Paginator).
 PANEL_TAM_PAGINA = {"20", "50", "100", "200"}
 
+# Historial de conciliaciones. Alto a propósito: la lista se puede agrupar por
+# día, y con una página corta un mismo día se partía entre páginas y el
+# resumen del encabezado solo contaba la parte visible.
+TAM_HISTORIAL = 100
+
 
 def _excel_conciliaciones(qs, filename="conciliaciones.xlsx"):
     """Genera una respuesta Excel a partir de un queryset de Conciliacion."""
@@ -221,7 +226,7 @@ def lista(request):
           .annotate(n_obs=Count("items", filter=~Q(items__observaciones="")))
           .order_by("-creado_en")
           if negocio else LoteConciliacion.objects.none())
-    paginator = Paginator(qs, 20)
+    paginator = Paginator(qs, TAM_HISTORIAL)
     page = paginator.get_page(request.GET.get("page"))
     return inertia_render(
         request,
