@@ -18,7 +18,7 @@ from core.imagenes import ImagenEnBlanco, esta_en_blanco
 from core.zips import ResumenZip, ZipInvalido, es_zip, imagenes_de_zip
 
 from .models import Conciliacion, LoteConciliacion
-from .tasks import emparejar_item, procesar_conciliacion
+from .tasks import _confirmado_a_mano, emparejar_item, procesar_conciliacion
 
 # Tamaños de página permitidos en el panel global (evita castear un valor
 # arbitrario del usuario directo a int() para Paginator).
@@ -860,6 +860,17 @@ def confirmar_pendiente(request, pk):
     item = get_object_or_404(Conciliacion, pk=pk, negocio=negocio)
     if request.method == "POST" and item.resultado == Conciliacion.PENDIENTE and item.comprobante:
         comp = item.comprobante
+        # Si ya venía confirmado por otra vía, confirmarlo aquí borraría quién lo
+        # hizo, cuándo y con qué ruta. Se avisa y no se toca.
+        ya = _confirmado_a_mano(comp, item.ruta)
+        if ya:
+            messages.warning(
+                request,
+                f"El comprobante #{comp.pk} no se tocó: {ya.lower()}. "
+                "Quítale la confirmación desde el listado si quieres reasignarlo.",
+            )
+            return _volver_detalle(item.lote_id, datos_post(request).get("r", "").strip(),
+                                   datos_post(request).get("sort", "").strip())
         comp.marcar_confirmado(Comprobante.VIA_CONC_PENDIENTE, request.user, item)
         comp.ruta = item.ruta
         comp.save()

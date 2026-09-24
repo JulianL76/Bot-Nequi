@@ -104,7 +104,53 @@ def _comp_candidato(item: Conciliacion):
     return candidatos[0]
 
 
-def _detectar_duplicado(item: Conciliacion, comp: Comprobante) -> str:
+# Vías de confirmación que NO vienen de una conciliación. Si un comprobante ya
+# está confirmado por una de ellas, la conciliación no debe re-confirmarlo: se
+# perdería quién lo confirmó, cuándo y con qué ruta.
+VIAS_FUERA_DE_CONCILIACION = (
+    Comprobante.VIA_LISTA,
+    Comprobante.VIA_EDICION,
+    Comprobante.VIA_IMPORTACION,
+)
+
+
+def _confirmado_a_mano(comp: Comprobante, ruta_esperada=None) -> str:
+    """Aviso si el comprobante ya venía confirmado fuera de una conciliación.
+
+    `ruta_esperada` es la ruta de la conciliación que lo está tocando. Si no
+    coincide con la que ya tiene el comprobante, el aviso lo dice: ese desfase
+    es lo que hay que corregir a mano, y sin nombrarlo el ítem parecía un simple
+    repetido.
+    """
+    if comp.estado != Comprobante.CONFIRMADO:
+        return ""
+    # Una confirmación sin vía registrada es de datos antiguos: igual cuenta como
+    # confirmada, así que tampoco se pisa.
+    if comp.confirmado_via and comp.confirmado_via not in VIAS_FUERA_DE_CONCILIACION:
+        return ""
+
+    partes = [comp.get_confirmado_via_display() if comp.confirmado_via else "a mano"]
+    if comp.confirmado_en:
+        partes.append(timezone.localtime(comp.confirmado_en).strftime("%d/%m/%Y %H:%M"))
+    if comp.confirmado_por_id:
+        partes.append(comp.confirmado_por.get_username())
+
+    tiene = comp.ruta.numero if comp.ruta_id else None
+    quiere = ruta_esperada.numero if ruta_esperada else None
+    if tiene == quiere:
+        partes.append(f"Ruta {tiene}" if tiene is not None else "sin ruta")
+    elif tiene is None:
+        partes.append(f"sin ruta, esta conciliación es de la Ruta {quiere}")
+    elif quiere is None:
+        partes.append(f"Ruta {tiene}, esta conciliación no tiene ruta")
+    else:
+        partes.append(f"RUTA DISTINTA: tiene Ruta {tiene}, esta conciliación es de la Ruta {quiere}")
+
+    # `aviso` es de 200 caracteres: un nombre de usuario largo podría pasarse.
+    return ("Ya confirmado · " + " · ".join(partes))[:200]
+
+
+def _detectar_duplicado(item: Conciliacion, comp: Comprobante, ruta_esperada=None) -> str:
     """Devuelve el texto de aviso si el pago (comprobante) ya está conciliado, o ''."""
     # Ya confirmado por una ruta en OTRA conciliación.
     prev = (Conciliacion.objects
@@ -123,7 +169,9 @@ def _detectar_duplicado(item: Conciliacion, comp: Comprobante) -> str:
              .exclude(pk=item.pk).exists())
     if mismo:
         return "Repetido en esta conciliación"
-    return ""
+
+    # Confirmado fuera de las conciliaciones (a mano, al editar o al importar).
+    return _confirmado_a_mano(comp, ruta_esperada)
 
 
 def validar_y_emparejar(item: Conciliacion, lote: LoteConciliacion) -> str:
@@ -194,7 +242,7 @@ def validar_y_emparejar(item: Conciliacion, lote: LoteConciliacion) -> str:
         item.ref = comp.ref
 
     # 4. Duplicado (mismo pago ya conciliado aquí o en otra ruta).
-    aviso = _detectar_duplicado(item, comp)
+    aviso = _detectar_duplicado(item, comp, lote.ruta)
     if aviso:
         item.comprobante = comp
         item.aviso = aviso

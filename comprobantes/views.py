@@ -412,6 +412,9 @@ def serializar_comprobante(c):
         "nDups": getattr(c, "n_dups", 0),
         "imagen": c.imagen.url if c.imagen else None,
         "rutaId": c.ruta_id,
+        # El número es lo que se muestra ("Ruta 12"); el id solo sirve para
+        # los formularios. `ruta` ya viene en el select_related de la lista.
+        "ruta": c.ruta.numero if c.ruta_id else None,
         "confirmadoEn": c.confirmado_en.isoformat() if c.confirmado_en else None,
         "confirmadoPor": c.confirmado_por.get_username() if c.confirmado_por_id else None,
         "confirmadoVia": c.get_confirmado_via_display() if c.confirmado_via else None,

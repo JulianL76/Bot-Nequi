@@ -300,9 +300,17 @@ export default function Lista({ filas, paginacion, resumen, desglose, filtros, l
                       <Badge>{c.origen}</Badge>
                     </div>
                     {c.confirmadoEn && (
-                      <p className="nums mt-0.5 t-meta text-subtle">
-                        Conf. {fechaHora(c.confirmadoEn)}{c.confirmadoPor ? ` · ${c.confirmadoPor}` : ''}
-                      </p>
+                      <>
+                        {/* Misma información que la columna Estado en escritorio. */}
+                        {c.confirmadoVia && (
+                          <p className="mt-0.5 truncate t-meta text-subtle">
+                            {c.confirmadoVia}{c.ruta != null ? ` · Ruta ${c.ruta}` : ''}
+                          </p>
+                        )}
+                        <p className="nums mt-0.5 t-meta text-subtle">
+                          Conf. {fechaHora(c.confirmadoEn)}{c.confirmadoPor ? ` · ${c.confirmadoPor}` : ''}
+                        </p>
+                      </>
                     )}
                   </div>
                 </div>

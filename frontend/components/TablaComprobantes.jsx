@@ -203,8 +203,12 @@ export function TablaComprobantes({
                 conc. #{c.conciliacion.loteId}{c.conciliacion.ruta ? ` · Ruta ${c.conciliacion.ruta}` : ''}
               </a>
             )}
+            {/* Confirmado a mano: la vía sola no dice a qué ruta quedó imputado,
+                que es justo lo que se compara contra el cuadre del día. */}
             {!c.conciliacion && c.confirmadoVia && (
-              <p className="truncate t-meta text-subtle">{c.confirmadoVia}</p>
+              <p className="truncate t-meta text-subtle">
+                {c.confirmadoVia}{c.ruta != null ? ` · Ruta ${c.ruta}` : ''}
+              </p>
             )}
             {c.confirmadoEn && (
               <p className="nums truncate t-meta text-subtle">

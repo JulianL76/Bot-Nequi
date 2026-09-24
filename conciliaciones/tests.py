@@ -81,6 +81,97 @@ class EmparejamientoVoucherTest(TestCase):
         self.assertEqual(item.comprobante, self.comp2)
 
 
+class ConfirmacionPreviaTest(TestCase):
+    """Una conciliación no debe pisar una confirmación hecha fuera de ella.
+
+    Pasó en producción: un comprobante confirmado a mano desde el listado fue
+    re-confirmado por una conciliación posterior, y se perdió quién lo había
+    confirmado, cuándo y con qué ruta.
+    """
+
+    def setUp(self):
+        self.usuario = User.objects.create_user("sharick", password="x")
+        self.negocio = Negocio.objects.create(nombre="N", titular_nequi="KAREN ACUNA")
+        self.ruta = Ruta.objects.create(negocio=self.negocio, numero=7)
+        self.lote = LoteConciliacion.objects.create(negocio=self.negocio, ruta=self.ruta)
+        self.comp = Comprobante.objects.create(
+            negocio=self.negocio, ref="M22497800", valor=250000,
+            fecha="18 de septiembre de 2026", hora="18:35",
+        )
+
+    def _item(self):
+        return Conciliacion.objects.create(
+            negocio=self.negocio, lote=self.lote, ruta=self.ruta,
+            tipo=Conciliacion.TIPO_NEQUI, para="KAREN ACUNA",
+            ref="M22497800", valor=250000,
+            fecha="18 de septiembre de 2026", hora="18:35",
+        )
+
+    def test_no_pisa_una_confirmacion_manual(self):
+        self.comp.marcar_confirmado(Comprobante.VIA_LISTA, self.usuario)
+        self.comp.save()
+        antes = (self.comp.confirmado_via, self.comp.confirmado_en, self.comp.confirmado_por_id)
+
+        item = self._item()
+        self.assertEqual(validar_y_emparejar(item, self.lote), "duplicado")
+
+        item.refresh_from_db()
+        self.assertIn("Ya confirmado", item.aviso)
+
+        self.comp.refresh_from_db()
+        self.assertEqual(
+            (self.comp.confirmado_via, self.comp.confirmado_en, self.comp.confirmado_por_id),
+            antes,
+            "la conciliación pisó la confirmación manual",
+        )
+        self.assertIsNone(self.comp.ruta_id, "no debe reasignar la ruta")
+
+    def test_el_aviso_señala_la_discrepancia_de_ruta(self):
+        """Si la ruta que ya tiene no es la de esta conciliación, hay que verlo."""
+        otra = Ruta.objects.create(negocio=self.negocio, numero=3)
+        self.comp.ruta = otra
+        self.comp.marcar_confirmado(Comprobante.VIA_LISTA, self.usuario)
+        self.comp.save()
+
+        item = self._item()
+        self.assertEqual(validar_y_emparejar(item, self.lote), "duplicado")
+        item.refresh_from_db()
+        self.assertIn("RUTA DISTINTA", item.aviso)
+        self.assertIn("Ruta 3", item.aviso)   # la que tiene
+        self.assertIn("Ruta 7", item.aviso)   # la de esta conciliación
+
+    def test_el_aviso_no_alarma_si_la_ruta_coincide(self):
+        self.comp.ruta = self.ruta
+        self.comp.marcar_confirmado(Comprobante.VIA_LISTA, self.usuario)
+        self.comp.save()
+
+        item = self._item()
+        self.assertEqual(validar_y_emparejar(item, self.lote), "duplicado")
+        item.refresh_from_db()
+        self.assertNotIn("DISTINTA", item.aviso)
+        self.assertIn("Ruta 7", item.aviso)
+
+    def test_el_aviso_avisa_cuando_no_tiene_ruta(self):
+        self.comp.marcar_confirmado(Comprobante.VIA_LISTA, self.usuario)
+        self.comp.save()
+
+        item = self._item()
+        validar_y_emparejar(item, self.lote)
+        item.refresh_from_db()
+        self.assertIn("sin ruta", item.aviso)
+        self.assertIn("Ruta 7", item.aviso)
+
+    def test_sin_confirmar_previa_si_confirma_normalmente(self):
+        """El caso normal no se ve afectado por la comprobación nueva."""
+        item = self._item()
+        self.assertEqual(validar_y_emparejar(item, self.lote), "ok")
+
+        self.comp.refresh_from_db()
+        self.assertEqual(self.comp.estado, Comprobante.CONFIRMADO)
+        self.assertEqual(self.comp.confirmado_via, Comprobante.VIA_CONCILIACION)
+        self.assertEqual(self.comp.ruta_id, self.ruta.pk)
+
+
 class ParseHoraTest(TestCase):
     def test_variantes_ampm_y_puntos(self):
         from core.parsing import parse_hora
