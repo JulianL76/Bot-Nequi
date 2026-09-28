@@ -21,6 +21,10 @@ export function useProgreso(url, inicial, { activo = true, alTerminar } = {}) {
   const [atascado, setAtascado] = useState(false);
   const ultimoAvance = useRef({ procesadas: inicial?.procesadas ?? 0, cuando: Date.now() });
 
+  // Inertia conserva el estado tras un POST (confirmar, añadir, reprocesar…):
+  // sin esto los contadores se quedarían con los del primer render.
+  useEffect(() => { setDatos(inicial); }, [inicial]);
+
   useEffect(() => {
     if (!activo || !url) return undefined;
 

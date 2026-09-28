@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link, router, useForm, usePage } from '@inertiajs/react';
 import {
   Check, ChevronLeft, ChevronRight, Columns3, Copy, Download,
@@ -75,8 +75,8 @@ export default function Lista({ filas, paginacion, resumen, desglose, filtros, l
   const [aEliminar, setAEliminar] = useState(null);
   const [rutaAsignar, setRutaAsignar] = useState('');
 
-  const ids = useMemo(() => filas.map((f) => f.id), [filas]);
-  const sel = useSeleccionPersistente(ids);
+  const sel = useSeleccionPersistente(filas);
+  const [verSeleccion, setVerSeleccion] = useState(false);
 
   /** Navega conservando los filtros actuales y cambiando solo lo que llega. */
   const navegar = (cambios, opciones = {}) => {
@@ -381,12 +381,20 @@ export default function Lista({ filas, paginacion, resumen, desglose, filtros, l
             <Button variant="ghost" size="sm" icon onClick={sel.limpiar} title="Quitar selección" aria-label="Quitar selección">
               <X />
             </Button>
-            <span className="whitespace-nowrap text-xs font-semibold">
-              <span className="nums">{sel.total}</span> seleccionado{sel.total !== 1 ? 's' : ''}
-              {sel.fuera > 0 && (
-                <span className="font-normal text-muted"> (<span className="nums">{sel.fuera}</span> en otras páginas)</span>
-              )}
-            </span>
+            <button
+              type="button"
+              onClick={() => setVerSeleccion(true)}
+              title="Ver los seleccionados"
+              className="flex flex-col items-start rounded-[var(--radius-field)] px-1.5 py-0.5 text-left text-xs hover:bg-surface-inset"
+            >
+              <span className="whitespace-nowrap font-semibold">
+                <span className="nums">{numero(sel.total)}</span> seleccionado{sel.total !== 1 ? 's' : ''}
+                <span className="nums ml-1.5 text-ok-600 dark:text-ok-400">{pesos(sel.suma)}</span>
+              </span>
+              <span className="whitespace-nowrap text-muted underline decoration-dotted underline-offset-2">
+                {sel.fuera > 0 ? `${numero(sel.fuera)} en otras páginas · ` : ''}Ver selección
+              </span>
+            </button>
 
             <div className="ml-auto flex flex-wrap items-center gap-1.5">
               <Button variant="success" size="sm" onClick={() => accionLote('confirmar')}>
@@ -426,6 +434,8 @@ export default function Lista({ filas, paginacion, resumen, desglose, filtros, l
       </BarraAcciones>
 
       {/* ======================= Diálogos ======================= */}
+      <DialogoSeleccion abierto={verSeleccion} onOpenChange={setVerSeleccion} sel={sel} />
+
       <DialogoExportar
         abierto={exportar}
         onOpenChange={setExportar}
@@ -458,6 +468,58 @@ export default function Lista({ filas, paginacion, resumen, desglose, filtros, l
 /* ============================================================================
    Diálogo de exportación
    ========================================================================== */
+/** Lista de lo seleccionado, incluidos los que están en otras páginas. */
+function DialogoSeleccion({ abierto, onOpenChange, sel }) {
+  return (
+    <Dialog open={abierto && sel.total > 0} onOpenChange={onOpenChange}>
+      <DialogContent titulo="Selección" icon={Check} descripcion="Comprobantes seleccionados"
+                     className="w-[min(40rem,calc(100vw-1.5rem))]">
+        <div className="flex items-baseline justify-between gap-2 border-b border-line px-4 py-2.5 text-xs">
+          <span className="font-semibold">
+            <span className="nums">{numero(sel.total)}</span> {plural(sel.total, 'comprobante')}
+          </span>
+          <span className="t-dato text-base">{pesos(sel.suma)}</span>
+        </div>
+        {sel.sinDatos > 0 && (
+          <p className="border-b border-line px-4 py-2 text-xs text-muted">
+            {numero(sel.sinDatos)} {plural(sel.sinDatos, 'marcado', 'marcados')} antes de esta versión no
+            {sel.sinDatos === 1 ? ' tiene' : ' tienen'} datos guardados y no {sel.sinDatos === 1 ? 'suma' : 'suman'} al total.
+          </p>
+        )}
+        <ul className="max-h-[60vh] divide-y divide-line overflow-y-auto">
+          {sel.filas.map((f) => (
+            <li key={f.id} className="flex items-center gap-3 px-4 py-2 text-xs">
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium">{f.de || `Comprobante #${f.id}`}</p>
+                <p className="t-meta truncate">
+                  <span className="font-mono">{f.ref || '—'}</span>
+                  {f.fecha ? ` · ${f.fecha}${f.hora ? ` ${f.hora}` : ''}` : ''}
+                </p>
+              </div>
+              {f.estado && (f.estado === 'confirmado'
+                ? <Badge tono="ok" punto className="shrink-0">Conf.</Badge>
+                : <Badge tono="warn" punto className="shrink-0">Pend.</Badge>)}
+              <span className="nums w-28 shrink-0 text-right font-semibold">
+                {f.valor != null ? pesos(f.valor) : '—'}
+              </span>
+              <Button variant="ghost" size="sm" icon aria-label={`Quitar ${f.id} de la selección`}
+                      title="Quitar de la selección" onClick={() => sel.quitar(f.id)}>
+                <X />
+              </Button>
+            </li>
+          ))}
+        </ul>
+        <div className="flex justify-end border-t border-line px-4 py-2.5">
+          <Button variant="ghost" size="sm" className="text-bad-600 dark:text-bad-400"
+                  onClick={() => { sel.limpiar(); onOpenChange(false); }}>
+            Quitar toda la selección
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function DialogoExportar({ abierto, onOpenChange, rutas, filtros, url }) {
   const { data, setData } = useForm({ desde: filtros.dia || '', hasta: filtros.dia || '', ruta: [] });
   const todas = rutas.length > 0 && data.ruta.length === rutas.length + 1;

@@ -432,7 +432,11 @@ def conciliar(request):
     rutas = Ruta.objects.filter(negocio=negocio, activa=True)
 
     if request.method == "POST":
-        ruta = get_object_or_404(Ruta, pk=datos_post(request).get("ruta"), negocio=negocio)
+        ruta_id = str(datos_post(request).get("ruta") or "").strip()
+        ruta = rutas.filter(pk=ruta_id).first() if ruta_id.isdigit() else None
+        if not ruta:
+            messages.error(request, "Elige la ruta antes de conciliar.")
+            return redirect("conciliaciones:conciliar")
 
         from django.db import transaction
         with transaction.atomic():
@@ -881,10 +885,7 @@ def confirmar_pendiente(request, pk):
         comp.save()
         item.resultado = Conciliacion.OK
         item.save(update_fields=["resultado"])
-        # Actualizar contadores del lote.
-        LoteConciliacion.objects.filter(pk=item.lote_id).update(
-            ok=item.lote.ok + 1, pendientes=max(item.lote.pendientes - 1, 0)
-        )
+        _recontar_lote(item.lote)
         messages.success(request, "Comprobante confirmado y asignado a la ruta.")
     return _volver_detalle(item.lote_id, datos_post(request).get("r", "").strip(),
                            datos_post(request).get("sort", "").strip())
