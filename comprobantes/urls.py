@@ -23,6 +23,7 @@ urlpatterns = [
     path("exportar/", views.exportar_lista, name="exportar_lista"),
     path("importar/", views.importar_excel, name="importar"),
     path("acciones/", views.acciones_lote, name="acciones_lote"),
+    path("seleccion/", views.ver_seleccion, name="ver_seleccion"),
     path("<int:pk>/editar/", views.editar, name="editar"),
     path("<int:pk>/eliminar/", views.eliminar, name="eliminar"),
     path("notificaciones/", views.notificaciones, name="notificaciones"),

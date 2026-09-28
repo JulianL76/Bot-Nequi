@@ -27,6 +27,7 @@ RUTAS_NAVEGACION = {
     "importar": "comprobantes:importar",
     "exportarComprobantes": "comprobantes:exportar_lista",
     "accionesLote": "comprobantes:acciones_lote",
+    "verSeleccion": "comprobantes:ver_seleccion",
     "conciliar": "conciliaciones:conciliar",
     "conciliaciones": "conciliaciones:lista",
     "panel": "conciliaciones:panel",

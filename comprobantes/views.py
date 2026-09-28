@@ -305,6 +305,9 @@ def reanudar_lote(request, lote_id):
     return redirect("comprobantes:lote_detalle", lote_id=lote.id)
 
 
+SESION_SELECCION = "seleccion_comprobantes"
+
+
 def _filtrar_comprobantes(request, negocio):
     """Aplica los filtros (q/día/dup/lote/estado) y devuelve (queryset, contexto).
 
@@ -316,6 +319,12 @@ def _filtrar_comprobantes(request, negocio):
     from core.parsing import limpiar_monto
 
     qs = Comprobante.objects.filter(negocio=negocio) if negocio else Comprobante.objects.none()
+
+    # "Ver selección": solo los ids que el front guardó en la sesión (ver
+    # ver_seleccion). Van en la sesión y no en la URL porque pueden ser miles.
+    sel = request.GET.get("sel", "").strip() == "1"
+    if sel:
+        qs = qs.filter(pk__in=request.session.get(SESION_SELECCION, []))
 
     q = request.GET.get("q", "").strip()
     if q:
@@ -368,7 +377,7 @@ def _filtrar_comprobantes(request, negocio):
     if estado in (Comprobante.CONFIRMADO, Comprobante.SIN_CONFIRMAR):
         qs = qs.filter(estado=estado)
 
-    ctx = {"q": q, "dia": dia, "dia_obj": dia_obj, "hora": hora,
+    ctx = {"q": q, "dia": dia, "dia_obj": dia_obj, "hora": hora, "sel": sel,
            "dup": dup, "estado": estado, "lote": lote, "lote_obj": lote_obj,
            "qs_alcance": qs_alcance}
     return qs, ctx
@@ -525,6 +534,7 @@ def lista(request):
                 "dup": ctx["dup"],
                 "estado": ctx["estado"],
                 "lote": ctx["lote"],
+                "sel": "1" if ctx["sel"] else "",
                 "sort": sort,
             },
             "lote": (
@@ -741,7 +751,20 @@ def acciones_lote(request):
         nombre = nombre_descarga("comprobantes", ["seleccion"])
         return _excel_comprobantes(qs, nombre)
 
+    # Vuelve a la lista con los filtros que tenía (p. ej. "Ver selección").
+    volver = str(datos.get("volver") or "")
+    if volver.startswith("?"):
+        return redirect(reverse("comprobantes:lista") + volver)
     return redirect("comprobantes:lista")
+
+
+@login_required
+def ver_seleccion(request):
+    """Guarda en la sesión los ids seleccionados y abre la lista filtrada por ellos."""
+    if request.method == "POST":
+        ids = [int(i) for i in datos_post(request).getlist("ids") if str(i).isdigit()]
+        request.session[SESION_SELECCION] = ids
+    return redirect(reverse("comprobantes:lista") + "?sel=1")
 
 
 @login_required
